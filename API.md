@@ -194,3 +194,31 @@ Deletion preserves unrelated question history, canonical facts and corpus
 indexes. External cleanup targets captured generation identities, not an owner's
 whole index directory. Cleanup may remain pending during Chroma failure; logical
 revocation is not a promise of forensic erasure or deletion of external backups.
+
+### Isolated Python data-workspace preview
+
+`GET /ui/workspace/index.html` serves the additive S6 data preview, not a replacement
+for `/` or the Node frontend. It uses the versioned workspace/evidence routes
+above with the boot token, same-origin requests and explicit source selection.
+No research/draft/job/browser controls or qualified capability are inferred.
+
+Owner/view epochs and per-pane request sequences discard superseded read/error
+responses. A successful non-destructive save acknowledges only its unchanged
+submitted form buffer; newer edits and unrelated forms survive. Explicitly
+confirmed scope deletion discards affected browser edits. Read-only export/import dry runs
+never acknowledge edits. A `409` remains visible without automatic retry. Changing
+interview question invalidates old UI callbacks, not a write already accepted by
+the server; subsequent reads reconcile canonical state.
+
+Question limits count Unicode code points, not UTF-16 units; input is validated,
+not silently truncated. The preview preserves existing question IDs, type,
+optionality and constraints, and refuses structural/text/order changes until an
+ID-aware editor is implemented. Citation integrity is displayed separately from
+semantic support. Source deletion distinguishes `pending`, `complete` and
+unrecognized responses; pending means access revoked, not external cleanup done.
+
+Generation recovery retains ambiguous dispatched dense writes. Neither local
+producer-lock release nor current Chroma absence can clear their tickets without
+the recorded completed write envelope. Cleanup is exact-generation and anchored-
+path scoped; unknown artifacts are preserved. These are reviewed components,
+not full worker/upload integration or a qualified forensic deletion guarantee.

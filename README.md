@@ -2,7 +2,7 @@
 
 A private, local-first internship application workspace for **technology and finance**. Includes the preserved dependency-free Node.js MVP and a separate Python/FastAPI evidence workbench.
 
-**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python now also has reviewed profile/interview/proposal/application data APIs and an explicit legacy importer. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. Static research acquisition and frozen query/evaluation inputs are tested components, not an integrated researched-drafting pipeline. Grounded application drafting and later supervised browser filling/submission are still being built. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
+**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python also has reviewed profile/interview/proposal/application data APIs, an explicit legacy importer and an isolated workspace preview. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. Fenced job/provider primitives, generation recovery, static research acquisition and frozen query/evaluation inputs are tested components, not an integrated researched-drafting pipeline. Grounded application drafting and later supervised browser filling/submission are still being built. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
 
 ## Start
 
@@ -80,6 +80,26 @@ Node files are never discovered or modified. Old cloud consent and review badges
 are not carried forward. These routes are documented in [API.md](API.md); the
 existing evidence page remains the default until the unified UI is qualified.
 
+### Python workspace preview
+
+With the Python server running, open
+`http://127.0.0.1:3001/ui/workspace/index.html` (use your configured port).
+This separate preview connects interview, explicit pending-fact confirmation,
+tech/finance opportunity inputs, feedback history, selected document import,
+hybrid quotation retrieval and citation inspection to the canonical Python data.
+Settings include separate typed personal values, explicit purpose consent,
+selected legacy-import dry runs, export and deletion status. No private documents
+are discovered automatically, and generated/history text never becomes a fact
+without confirmation.
+
+Cloud research/drafting, job controls, application review and browser actions
+are **not available in this preview**. Existing question text/order cannot yet be
+changed in its line editor: it refuses changes rather than reassigning IDs or
+constraints. Saved-state JSON export is not a qualified full backup. Independent
+review and synthetic actual-browser flows cover this component, not full S6,
+accessibility or release qualification. The default evidence page and Node app
+are unchanged.
+
 ### Docker setup
 
 Prerequisites: Docker Engine/Desktop with Compose, Linux containers and enough CPU/RAM for two local text models. The current development host has 7.6 GiB RAM; a small real-model smoke is not a capacity benchmark. Docker deployment is **not runtime-verified here** because Docker is unavailable.
@@ -120,13 +140,13 @@ Optional explicit paths: `COPILOT_DATA_DIR` (default `evidence-data`), `COPILOT_
 
 **Evidence boundaries:** raw document search requires selected source IDs; application fact search indexes only explicitly confirmed canonical wording. A corrected/manual fact cites its own confirmed version, not an old PDF as proof. Citations check ownership, active version, exact Unicode span, hash and excerpt. Integrity is distinct from truth or semantic support; relevance/rerank scores do not certify either. The tool returns quotations, not offline generated answers.
 
-**Deletion/privacy:** removing a fact retains its raw source; deleting a source revokes linked facts. Profile/source deletion is application-level logical removal plus owned blob/sparse-file removal and Chroma API absence, resumable through tickets. It does **not** promise forensic erasure from database freelists/WAL, service storage internals, host media/RAM, exports or external backups. Storage is plaintext; protect the OS/drive. Profiles are not authenticated friend accounts. Each friend should run an independent installation with their own data.
+**Deletion/privacy:** removing a fact retains its raw source; deleting a source revokes linked facts. Profile/source deletion immediately revokes app access, with exact owned external cleanup resumable through tickets. An absent Chroma collection or exited local producer does not prove an ambiguous remote write has stopped: completion requires its recorded write-envelope acknowledgment and cleanup checks; otherwise the ticket remains pending, potentially indefinitely. It does **not** promise forensic erasure from database freelists/WAL, service storage internals, host media/RAM, exports or external backups. Storage is plaintext; protect the OS/drive. Profiles are not authenticated friend accounts. Each friend should run an independent installation with their own data.
 
 **Limits:** English, TXT/MD/text-PDF only; 10 MiB upload, 100 PDF pages, one million extracted characters, bounded Linux parser subprocess, 1,000 chunks per profile/corpus. No OCR, encrypted PDFs, filesystem crawl or automatic fact confirmation. Static source fetching exists as a reviewed standalone component, not company/exact-role research integration. Python paid generation, support ledger, backup/restore qualification and browser submission automation remain pending.
 
 Next slices and acceptance criteria: [evidence milestone](docs/plans/evidence-milestone.md), [tests](docs/plans/evidence-milestone-tests.md), and [current researched-application roadmap](docs/plans/README.md). Production release still needs live Docker/HTTP persistence/recovery, broader retrieval evaluation, supported-machine performance measurements and independent friend installation trials.
 
-**Dedicated database requirement:** Do not connect this milestone to a shared Chroma instance. Recovery reconciles `evidence_` collections against this installation's SQLite manifests; a second installation must use its own database/volumes. Installation-scoped namespaces are required before supporting shared Chroma services.
+**Dedicated database requirement:** Do not connect this milestone to a shared Chroma instance. Recovery targets exact registered generation/manifest identities and preserves unknown artifacts rather than broadly sweeping `evidence_` collections. This conservative recovery is not shared-service isolation: a second installation must still use its own database/volumes. Installation-scoped namespaces are required before supporting shared Chroma services.
 
 Real offline integration (opt-in, synthetic fixtures only):
 

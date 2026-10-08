@@ -1,7 +1,7 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-const roots = ['src', 'public', 'test', 'scripts'];
+const roots = ['src', 'public', 'test', 'scripts', 'backend/ui'];
 let checked = 0;
 for (const root of roots) {
   for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {

@@ -51,6 +51,18 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   support-first ordering are disclosed; no evaluation metadata belongs in model
   context. Runtime packets, measured ranking/abstention repair and human quality
   gates remain pending, so **S4 is not complete**.
+- **S6 data preview only:** `/ui/workspace/index.html` connects canonical Python
+  onboarding, pending confirmations, application inputs, feedback, selected
+  document import and hybrid quotation/citation inspection. Separate typed values,
+  explicit consent, legacy-import dry runs and saved-state export are exposed
+  without enabling cloud or browser actions. Independent code review approved and
+  architecture cleared after six edit/selection/bootstrap/identity/Unicode/cleanup
+  issues were repaired. Seventeen Node regressions, four Python UI tests and actual
+  synthetic browser flows passed, including stale CAS and delayed-response races.
+  The complete Node suite passes 90 tests; syntax checks cover 21 modules. The
+  preview preserves the default evidence page and Node assets. Job/research/draft/
+  review integration, a full stable-ID question editor, full accessibility audit
+  and release qualification remain pending; **this does not complete S6**.
 
 ## Qualification boundaries
 
