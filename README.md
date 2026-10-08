@@ -1,0 +1,68 @@
+# Application Copilot
+
+A private, local-first internship application workspace for **technology and finance**. Built with Node.js and browser modules; **no third-party dependencies or npm install step**.
+
+**Snapshot status:** this repository contains the existing Node.js MVP. The next iteration—Python/FastAPI, Chroma, dense + BM25 retrieval, reranking and local Docker deployment—is reviewed and planned, **not implemented yet**. See [the development plan](docs/plans/README.md).
+
+## Start
+
+Requires Node.js 24 or newer. From this directory:
+
+```sh
+npm start
+```
+
+Open **http://localhost:3000**. Create your own blank profile or use **a separate, clearly synthetic demo**. Friends can run their own copy with their own local data. Selecting profiles on a shared machine is a convenience, not authenticated account security.
+
+## Enable real company research and AI drafting
+
+Copy `.env.example` to `.env`, set your own `OPENAI_API_KEY` locally, optionally set `OPENAI_MODEL`, and restart the server. Never paste the key into chat, put it in a browser field, or commit it. The documented default is `gpt-6-astra`; your account needs access to the configured API model/tools. In each profile's Settings, explicitly enable cloud processing. Requests may incur provider usage charges; no cloud calls happen without both consent and configured credentials.
+
+Research uses actual public employer/role retrieval, restricted to the company domain you supply and a relevant trusted ATS domain when present. It retains consulted source URLs, supporting excerpts, timestamps and separately labelled inferred priorities. It requires company AND exact-role coverage before cloud drafting. It then combines relevant verified personal memories with that research and actual application questions. These checks are not semantic proof: inspect sources and every generated claim. We cannot know a hiring manager's private thoughts.
+
+Cloud drafting now plans the strongest supported example/angle for each question, drafts, and independently critiques the exact wording against the original evidence and research. If issues remain, it rewrites once and critiques that final version again: **3–5 model calls**, with added latency and usage. The advisory quality panel identifies weak specificity, role fit, unsupported claims, unanswered questions and format issues. Factual questions stay direct; gaps require your confirmation, not invented achievements. An editorial pass is not factual certification or a hiring-success score. Editing the prose or changing its underlying evidence makes the assessment stale.
+
+**Offline mode never pretends to research or personalize.** It provides deep onboarding, memory review, role tracking and explicit generic draft templates with placeholders. Replace placeholders yourself, or configure cloud processing. The live provider path is implemented and tested using synthetic injected responses; no live model request was made during development because no user key was supplied.
+
+## Use the workspace
+
+1. **Interview:** 48 substantive common/tech/finance questions (sector-filtered). Around 45–60 minutes is a target, not a compulsory timer. Save, skip, resume or finish early. Request adaptive follow-ups when useful. Saved answers propose pending evidence; unanswered questions never become invented facts.
+2. **Brain:** confirm/reject pending memories and inspect provenance. Add verified projects, behavioral stories, achievements and motivations. New or changed facts always need explicit confirmation, even when they appeared in a reviewed application. Correcting a fact supersedes it and stales derived drafts.
+3. **Opportunities:** add an actual employer/role, official company URL, job description, and all application questions with word/character limits. Both sectors work equally. The first version uses manual listings; no claim of exhaustive coverage.
+4. **Research:** request real company AND role research. Missing/unsourced/stale evidence blocks tailored cloud drafting instead of generating a confident generic answer.
+5. **Applications:** generate, inspect the question plan and editorial issues alongside evidence/gaps, edit, copy or download; review the exact saved version. Only you submit on the employer site. **Mark submitted** records your explicit action; it does not submit anything or observe employer confirmations.
+6. **Learning:** approved wording/history is logged in an immutable application snapshot. Answer content can become a pending memory candidate, not an automatically verified fact. Historical prose is never sent to the model as factual evidence. Confirm and refine useful new memories before future reuse.
+
+## Data and privacy
+
+- Brain/interviews/research/drafts/history persist in `.data/state.json` with atomic writes and restricted permissions where the filesystem supports them. Windows-mounted filesystem permissions may not enforce Unix modes. **Local storage is plaintext, not encrypted**; protect the OS account/drive.
+- API key is server environment only. Selected profile ID may be stored in browser localStorage; personal brain data is not.
+- Server binds to loopback, validates Host/Origin, requires a boot-session token and supplies a restrictive CSP. It never executes webpage/model instructions or fetches arbitrary job URLs itself.
+- Cloud research does not receive personal memory. Drafting receives relevant verified memories; requested interview follow-ups receive your answer and relevant verified evidence. Consent belongs to each profile.
+- Persisted consent and source versions are checked before each cloud transmission and again before saving. Revoking consent stops subsequent stages; it cannot recall an already transmitted request. A failed quality stage leaves the previous saved draft untouched.
+- `store:false` requests are used, but this is **not zero provider retention**; applicable abuse-monitoring retention may still exist. Read the provider's [data controls](https://developers.openai.com/api/docs/guides/your-data).
+- **Forget memory** removes that memory and linked interview source; conservatively clears ALL derived draft/history content for that profile so deleted facts cannot hide in human-edited prose. Other verified memories remain. Inspect the confirmation before forgetting.
+- **Delete profile** removes all its app-held content. Existing downloads, OS backups and already transmitted provider/employer data are outside app-local deletion. Exports contain personal data; store them privately.
+- One server owns a data directory. A second instance fails safely. An unclean crash can leave a writer lock; do not blindly remove it while a server might be running. Its recorded owner must be confirmed dead before a bounded recovery. Normal Ctrl+C shutdown releases it.
+
+## Development and verification
+
+```sh
+npm test
+npm run check
+```
+
+Tests use synthetic profiles, injected provider responses and temporary local HTTP servers. `--test-isolation=none` ensures individual assertions run in this environment. Syntax checks cover source/frontend/test modules; no external linter or TypeScript compiler is installed. Current architecture contracts: [API.md](API.md), [DESIGN.md](DESIGN.md).
+
+## Explicit first-version limits
+
+- **No browser autofill or automatic submissions yet.** Supported-platform browser filling is the next phase.
+- **GitHub listing import is not enabled yet.** A conservative normalizer exists, but the live upstream schema/licensing/provenance needs validation before connecting it. Manual job entry supports tech and finance now. Trackr is inspiration only; its [terms](https://the-trackr.com/terms-of-use/) restrict automated extraction and applications.
+- No hosted accounts, encrypted datastore, PDF CV parsing, fine-tuning or vector database. Existing CV/course files were not read or changed.
+- Model output can still be wrong. Source/evidence ID checks help review but do not prove every sentence is factual. Questions or gaps require you, not guesses.
+
+## Official implementation references
+
+[Responses web search](https://developers.openai.com/api/docs/guides/tools-web-search), [structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs), [documented model](https://developers.openai.com/api/docs/models/gpt-6-astra).
+
+The editorial rubric draws on public [Oxford application-form guidance](https://www.ox.ac.uk/careers/careers-guidance/job-search-and-applications/writing-applications/application-forms), [Microsoft hiring guidance](https://careers.microsoft.com/v2/global/en/hiring-tips) and [JPMorganChase's hiring guidance](https://www.jpmorganchase.com/careers/how-we-hire). Applying interview guidance to written answers is our design inference, not employer endorsement; the actual employer's published application instructions take precedence.
