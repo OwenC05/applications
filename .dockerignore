@@ -1,0 +1,15 @@
+**
+!Dockerfile
+!backend/
+!backend/pyproject.toml
+!backend/uv.lock
+!backend/models.lock.json
+!backend/copilot/
+!backend/copilot/**
+!backend/ui/
+!backend/ui/**
+**/__pycache__/
+**/*.pyc
+**/.env*
+**/*.sqlite*
+**/*.db
