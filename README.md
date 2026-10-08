@@ -2,7 +2,7 @@
 
 A private, local-first internship application workspace for **technology and finance**. Includes the preserved dependency-free Node.js MVP and a separate Python/FastAPI evidence workbench.
 
-**Snapshot status:** Node onboarding/research/drafting and the separate Python evidence workbench are implemented. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. Integrating researched, grounded application drafting and later supervised browser filling/submission is **reviewed and planned, not implemented yet**. See [the current development plan](docs/plans/README.md).
+**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python now also has reviewed profile/interview/proposal/application data APIs and an explicit legacy importer. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. Static research acquisition and frozen query/evaluation inputs are tested components, not an integrated researched-drafting pipeline. Grounded application drafting and later supervised browser filling/submission are still being built. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
 
 ## Start
 
@@ -71,6 +71,15 @@ The editorial rubric draws on public [Oxford application-form guidance](https://
 
 The existing Node application above is preserved. This additive milestone is **not yet integrated with application drafting**. It provides local document import, explicit fact confirmation, hybrid retrieval and citation inspection on **port 3001**, with a separate SQLite data root. It makes no cloud calls or generated-answer/hiring-quality claims.
 
+The additive `/api/workspace` data services share that same Python/SQLite profile
+and confirmed-fact authority: 48-question onboarding, pending confirmations,
+application inputs, immutable feedback history and purpose-specific consent.
+Typed personal information stays outside story retrieval. An explicit selected
+single-profile Node export can be dry-run/imported with exact-byte confirmation;
+Node files are never discovered or modified. Old cloud consent and review badges
+are not carried forward. These routes are documented in [API.md](API.md); the
+existing evidence page remains the default until the unified UI is qualified.
+
 ### Docker setup
 
 Prerequisites: Docker Engine/Desktop with Compose, Linux containers and enough CPU/RAM for two local text models. The current development host has 7.6 GiB RAM; a small real-model smoke is not a capacity benchmark. Docker deployment is **not runtime-verified here** because Docker is unavailable.
@@ -113,7 +122,7 @@ Optional explicit paths: `COPILOT_DATA_DIR` (default `evidence-data`), `COPILOT_
 
 **Deletion/privacy:** removing a fact retains its raw source; deleting a source revokes linked facts. Profile/source deletion is application-level logical removal plus owned blob/sparse-file removal and Chroma API absence, resumable through tickets. It does **not** promise forensic erasure from database freelists/WAL, service storage internals, host media/RAM, exports or external backups. Storage is plaintext; protect the OS/drive. Profiles are not authenticated friend accounts. Each friend should run an independent installation with their own data.
 
-**Limits:** English, TXT/MD/text-PDF only; 10 MiB upload, 100 PDF pages, one million extracted characters, bounded Linux parser subprocess, 1,000 chunks per profile/corpus. No OCR, encrypted PDFs, filesystem crawl, auto fact extraction, company fetcher, paid generation, support ledger, legacy migration, backup/restore or submission automation yet.
+**Limits:** English, TXT/MD/text-PDF only; 10 MiB upload, 100 PDF pages, one million extracted characters, bounded Linux parser subprocess, 1,000 chunks per profile/corpus. No OCR, encrypted PDFs, filesystem crawl or automatic fact confirmation. Static source fetching exists as a reviewed standalone component, not company/exact-role research integration. Python paid generation, support ledger, backup/restore qualification and browser submission automation remain pending.
 
 Next slices and acceptance criteria: [evidence milestone](docs/plans/evidence-milestone.md), [tests](docs/plans/evidence-milestone-tests.md), and [current researched-application roadmap](docs/plans/README.md). Production release still needs live Docker/HTTP persistence/recovery, broader retrieval evaluation, supported-machine performance measurements and independent friend installation trials.
 

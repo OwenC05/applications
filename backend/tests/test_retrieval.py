@@ -274,3 +274,19 @@ def test_failed_build_attempts_both_cleanups_and_recovers(setup, monkeypatch, de
     service.recover()
     assert not dense.owned_names(profile.id)
     assert not list((service.index_root / profile.id).iterdir())
+
+
+def test_old_cleanup_ticket_preserves_unrelated_and_newer_generations(setup):
+    store, dense, service, profile = setup
+    fact = store.confirm_fact(profile.id, 'Python fact')
+    source = store.add_source(profile.id, 'notes.txt', 'text/plain', b'finance document', ['finance document'], 'test')
+    old = service.build(profile.id, 'facts')
+    document = service.build(profile.id, 'documents')
+    ticket = store.revoke_fact(profile.id, fact.id)
+    store.confirm_fact(profile.id, 'New Python fact')
+    newer = service.build(profile.id, 'facts')
+    service.cleanup(ticket)
+    assert old.dense_collection not in dense.names()
+    assert newer.dense_collection in dense.names() and document.dense_collection in dense.names()
+    assert service.search(profile.id, 'facts', 'Python')
+    assert service.search(profile.id, 'documents', 'finance', [source.id])

@@ -1,0 +1,338 @@
+[
+  {
+    "id": "common-direction",
+    "section": "Career direction",
+    "prompt": "What kinds of work energize you, and which roles are you considering?",
+    "hint": "Describe the actual tasks you enjoy, not only job titles.",
+    "sector": "common"
+  },
+  {
+    "id": "common-motivation",
+    "section": "Career direction",
+    "prompt": "Why are you interested in these sectors, and what experiences shaped that interest?",
+    "hint": "Name a concrete moment, project, conversation or course.",
+    "sector": "common"
+  },
+  {
+    "id": "common-values",
+    "section": "Career direction",
+    "prompt": "What matters most to you in an employer and working environment?",
+    "hint": "Consider learning, responsibility, impact, culture and trade-offs.",
+    "sector": "common"
+  },
+  {
+    "id": "common-availability",
+    "section": "Practical details",
+    "prompt": "What are your internship availability dates and any scheduling constraints?",
+    "hint": "Use exact dates where known; say explicitly what is uncertain.",
+    "sector": "common"
+  },
+  {
+    "id": "common-locations",
+    "section": "Practical details",
+    "prompt": "Which locations and working arrangements can you realistically consider?",
+    "hint": "Separate preferences from genuine constraints.",
+    "sector": "common"
+  },
+  {
+    "id": "common-education",
+    "section": "Education",
+    "prompt": "What are you studying, where, and when do you expect to graduate?",
+    "hint": "Include qualification names and dates you can verify.",
+    "sector": "common"
+  },
+  {
+    "id": "common-grades",
+    "section": "Education",
+    "prompt": "Which grades, qualifications or academic distinctions would you want an employer to know?",
+    "hint": "Do not estimate scores; skip anything you do not want to store.",
+    "sector": "common"
+  },
+  {
+    "id": "common-coursework",
+    "section": "Education",
+    "prompt": "Which course or assignment best demonstrates skills relevant to your target roles?",
+    "hint": "Explain the task, your contribution and an observable result.",
+    "sector": "common"
+  },
+  {
+    "id": "common-experience",
+    "section": "Experience",
+    "prompt": "Walk through your work experience and the responsibilities you personally held.",
+    "hint": "Include paid work, volunteering or caring responsibilities if relevant.",
+    "sector": "common"
+  },
+  {
+    "id": "common-achievement",
+    "section": "Experience",
+    "prompt": "What achievement are you most proud of, and what did you personally do to make it happen?",
+    "hint": "Distinguish your work from the team outcome.",
+    "sector": "common"
+  },
+  {
+    "id": "common-impact",
+    "section": "Experience",
+    "prompt": "Describe an example where your work improved an outcome in a measurable way.",
+    "hint": "Give the baseline, result and how the measurement was obtained.",
+    "sector": "common"
+  },
+  {
+    "id": "common-project",
+    "section": "Experience",
+    "prompt": "Describe a project from start to finish: problem, decisions, contribution and result.",
+    "hint": "Use a real project; incomplete projects can still supply useful evidence.",
+    "sector": "common"
+  },
+  {
+    "id": "common-leadership",
+    "section": "Collaboration",
+    "prompt": "When have you guided a group or taken responsibility without formal authority?",
+    "hint": "What did you do, how many people were involved, and what changed?",
+    "sector": "common"
+  },
+  {
+    "id": "common-teamwork",
+    "section": "Collaboration",
+    "prompt": "Describe a time you contributed effectively to a team with different strengths.",
+    "hint": "Explain coordination and your individual contribution.",
+    "sector": "common"
+  },
+  {
+    "id": "common-conflict",
+    "section": "Collaboration",
+    "prompt": "Tell me about a disagreement and how you handled it.",
+    "hint": "Explain the competing views and whether the resolution worked.",
+    "sector": "common"
+  },
+  {
+    "id": "common-communication",
+    "section": "Collaboration",
+    "prompt": "When have you explained a complex idea to someone unfamiliar with the subject?",
+    "hint": "How did you adapt your explanation and check understanding?",
+    "sector": "common"
+  },
+  {
+    "id": "common-feedback",
+    "section": "Growth",
+    "prompt": "What difficult feedback have you received, and what changed afterward?",
+    "hint": "A specific change is more useful than saying you welcome feedback.",
+    "sector": "common"
+  },
+  {
+    "id": "common-failure",
+    "section": "Growth",
+    "prompt": "Describe a mistake or setback, your responsibility for it, and what you learned.",
+    "hint": "Avoid disguising a strength as a weakness; focus on recovery.",
+    "sector": "common"
+  },
+  {
+    "id": "common-learning",
+    "section": "Growth",
+    "prompt": "How have you learned a difficult skill independently?",
+    "hint": "Describe your approach, practice and evidence of progress.",
+    "sector": "common"
+  },
+  {
+    "id": "common-pressure",
+    "section": "Judgement",
+    "prompt": "Tell me about competing deadlines and how you decided what to prioritize.",
+    "hint": "What did you deprioritize or communicate to others?",
+    "sector": "common"
+  },
+  {
+    "id": "common-ambiguity",
+    "section": "Judgement",
+    "prompt": "When have you worked with incomplete information or an unclear brief?",
+    "hint": "Explain what you investigated and what assumptions you tested.",
+    "sector": "common"
+  },
+  {
+    "id": "common-ethics",
+    "section": "Judgement",
+    "prompt": "Describe a real situation where doing the right thing was inconvenient.",
+    "hint": "Do not disclose confidential or identifying information about others.",
+    "sector": "common"
+  },
+  {
+    "id": "common-initiative",
+    "section": "Judgement",
+    "prompt": "When did you notice a problem nobody had asked you to solve?",
+    "hint": "What action did you take and what happened?",
+    "sector": "common"
+  },
+  {
+    "id": "common-interests",
+    "section": "Personal story",
+    "prompt": "What interests or activities outside coursework reveal something meaningful about you?",
+    "hint": "Describe commitment or curiosity rather than listing hobbies.",
+    "sector": "common"
+  },
+  {
+    "id": "common-distinctive",
+    "section": "Personal story",
+    "prompt": "What combination of experiences or perspectives makes your contribution distinctive?",
+    "hint": "Ground this in examples rather than unsupported adjectives.",
+    "sector": "common"
+  },
+  {
+    "id": "common-writing",
+    "section": "Personal story",
+    "prompt": "How would you like your application writing to sound, and what language should it avoid?",
+    "hint": "Give tone preferences. These are not new factual achievements.",
+    "sector": "common"
+  },
+  {
+    "id": "common-gaps",
+    "section": "Personal story",
+    "prompt": "What parts of your experience are difficult to explain or need careful context?",
+    "hint": "Share only what you are comfortable storing; never invent a replacement story.",
+    "sector": "common"
+  },
+  {
+    "id": "common-evidence",
+    "section": "Personal story",
+    "prompt": "Which public portfolios, projects, awards or references support your strongest claims?",
+    "hint": "Share links or descriptions, not passwords or private documents.",
+    "sector": "common"
+  },
+  {
+    "id": "tech-technical-project",
+    "section": "Technology",
+    "prompt": "Describe your strongest technical project and the problem it solved.",
+    "hint": "Include your role, technologies, users and actual outcome.",
+    "sector": "tech"
+  },
+  {
+    "id": "tech-architecture",
+    "section": "Technology",
+    "prompt": "What important design trade-off have you made in a technical project?",
+    "hint": "Explain the alternatives and why the constraints favored your choice.",
+    "sector": "tech"
+  },
+  {
+    "id": "tech-debugging",
+    "section": "Technology",
+    "prompt": "Walk through a difficult bug you diagnosed and fixed.",
+    "hint": "Explain reproduction, investigation and how you verified the fix.",
+    "sector": "tech"
+  },
+  {
+    "id": "tech-testing",
+    "section": "Technology",
+    "prompt": "How have you tested software or checked the reliability of a technical result?",
+    "hint": "Describe concrete checks and a defect they caught.",
+    "sector": "tech"
+  },
+  {
+    "id": "tech-code-quality",
+    "section": "Technology",
+    "prompt": "Describe a time you improved maintainability or collaborated on code.",
+    "hint": "Consider reviews, documentation, version control and simplifying code.",
+    "sector": "tech"
+  },
+  {
+    "id": "tech-technical-skills",
+    "section": "Technology",
+    "prompt": "Which technical tools can you use independently, and which are still developing?",
+    "hint": "For each important skill, provide a project-based example.",
+    "sector": "tech"
+  },
+  {
+    "id": "tech-users",
+    "section": "Technology",
+    "prompt": "When have user feedback or accessibility needs changed your technical work?",
+    "hint": "Describe the feedback and the change, including limits of your knowledge.",
+    "sector": "tech"
+  },
+  {
+    "id": "tech-data",
+    "section": "Technology",
+    "prompt": "Describe an analysis, model or data task you completed and how you checked its conclusions.",
+    "hint": "Include data limitations and avoid claiming causation without evidence.",
+    "sector": "tech"
+  },
+  {
+    "id": "tech-security",
+    "section": "Technology",
+    "prompt": "How have you considered privacy, security or misuse in a project?",
+    "hint": "Acknowledge what you did not assess; do not disclose vulnerabilities or secrets.",
+    "sector": "tech"
+  },
+  {
+    "id": "tech-technical-curiosity",
+    "section": "Technology",
+    "prompt": "What technical topic have you explored recently, and why does it interest you?",
+    "hint": "Explain what you actually tried or learned, not just a trend name.",
+    "sector": "tech"
+  },
+  {
+    "id": "finance-finance-direction",
+    "section": "Finance",
+    "prompt": "Which finance functions interest you, and what do you understand about their daily work?",
+    "hint": "Distinguish banking, markets, investing, risk, accounting and other areas.",
+    "sector": "finance"
+  },
+  {
+    "id": "finance-commercial-awareness",
+    "section": "Finance",
+    "prompt": "Describe a recent business or market development you followed and your interpretation.",
+    "hint": "Separate known facts, your interpretation and unanswered questions.",
+    "sector": "finance"
+  },
+  {
+    "id": "finance-financial-analysis",
+    "section": "Finance",
+    "prompt": "Tell me about financial analysis or quantitative work you have actually done.",
+    "hint": "Include sources, assumptions, methods and limitations.",
+    "sector": "finance"
+  },
+  {
+    "id": "finance-valuation",
+    "section": "Finance",
+    "prompt": "Have you evaluated a business or investment? Explain your approach and conclusions.",
+    "hint": "A coursework or society example is valid; do not imply professional experience.",
+    "sector": "finance"
+  },
+  {
+    "id": "finance-finance-tools",
+    "section": "Finance",
+    "prompt": "Which spreadsheets, accounting concepts or analytical tools have you used independently?",
+    "hint": "Give a specific task and explain how you checked the output.",
+    "sector": "finance"
+  },
+  {
+    "id": "finance-risk",
+    "section": "Finance",
+    "prompt": "Describe a decision where you weighed potential gains against downside risk.",
+    "hint": "Explain uncertainty and safeguards, not only the final result.",
+    "sector": "finance"
+  },
+  {
+    "id": "finance-client-service",
+    "section": "Finance",
+    "prompt": "When have you understood another person’s needs and delivered accurate, reliable service?",
+    "hint": "Customer-facing non-finance experience counts.",
+    "sector": "finance"
+  },
+  {
+    "id": "finance-accuracy",
+    "section": "Finance",
+    "prompt": "Tell me about catching an error or maintaining accuracy under pressure.",
+    "hint": "Describe the checks you used and the impact.",
+    "sector": "finance"
+  },
+  {
+    "id": "finance-investment-thesis",
+    "section": "Finance",
+    "prompt": "What business or sector would you like to investigate further, and what questions would you ask?",
+    "hint": "A reasoned research question is better than unsupported investment certainty.",
+    "sector": "finance"
+  },
+  {
+    "id": "finance-finance-exposure",
+    "section": "Finance",
+    "prompt": "Which events, societies, courses or conversations informed your finance interests?",
+    "hint": "Clarify participation versus leadership and what you learned.",
+    "sector": "finance"
+  }
+]

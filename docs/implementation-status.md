@@ -8,6 +8,13 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
 
 - **S0:** strict domain/revision/provenance/job/approval contracts and 46 contract
   regressions. Independent code review approved; architecture clear.
+- **S1:** unified Python/SQLite profile, 48-question interview, pending proposals,
+  explicit fact corrections, separate typed personal values, application inputs,
+  immutable feedback and selected-byte legacy import. Independent code review
+  approved; architecture clear after deletion, legacy-lineage and metadata-CAS
+  regressions were repaired. No old cloud consent, review badge or source text is
+  silently promoted. The preserved evidence page remains the default; these data
+  APIs are not an integrated research/drafting or submission capability.
 - **S3 preparation only:** anonymous static HTTPS acquisition with exact-host
   policy, validated pinned IP connections, bounded original bytes, verified TLS,
   canonical extraction and provenance hashes. HTML/PDF parsing runs in bounded

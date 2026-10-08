@@ -111,7 +111,7 @@ class EvidenceService:
         manifest = self.store.active_manifest(profile_id, corpus)
         if manifest is None:
             raise EvidenceError("INDEX_NOT_READY", "Build the selected corpus index first", 503)
-        self.store.validate_snapshot(profile_id, manifest.revision)
+        self.store.validate_snapshot(profile_id, manifest.revision, corpus)
         if (manifest.model_fingerprint != self.models.fingerprint
                 or manifest.chunker_version != CHUNKER_VERSION):
             raise EvidenceError("INDEX_NOT_READY", "Model or chunker changed; rebuild required", 503)
@@ -121,7 +121,7 @@ class EvidenceService:
         if len(ids) != manifest.chunk_count or ids_checksum(ids) != manifest.chunk_ids_sha256:
             raise EvidenceError("INDEX_NOT_READY", "Canonical index snapshot mismatch", 503)
         if not chunks:
-            self.store.validate_snapshot(profile_id, manifest.revision)
+            self.store.validate_snapshot(profile_id, manifest.revision, corpus)
             return []
         self.dense.verify(manifest.dense_collection, ids, self.models.fingerprint)
         engine, meta = sparse.load(self.index_root / manifest.sparse_relpath, ids,
@@ -134,7 +134,7 @@ class EvidenceService:
         self._validate_vectors(vector, 1)
         allowed = [c for c in chunks if source_ids is None or c.record_id in source_ids]
         if not allowed:
-            self.store.validate_snapshot(profile_id, manifest.revision)
+            self.store.validate_snapshot(profile_id, manifest.revision, corpus)
             return []
         dense_ids = self.dense.query(manifest.dense_collection, vector[0], min(30, len(allowed)), source_ids)
         sparse_ids = sparse.query(engine, meta, query, 30, source_ids)
@@ -157,7 +157,7 @@ class EvidenceService:
             raise EvidenceError("CONFLICT", "Evidence changed during search; rebuild required", 409)
         hits = [Hit(mapping[key], self.store.citation_for_chunk(profile_id, mapping[key]),
                     dr.get(key), br.get(key), scores[key], score) for key, score in ranked]
-        self.store.validate_snapshot(profile_id, manifest.revision)
+        self.store.validate_snapshot(profile_id, manifest.revision, corpus)
         return hits
 
     def _ids(self, manifest):
@@ -172,13 +172,28 @@ class EvidenceService:
             raise EvidenceError("INDEX_NOT_READY", "Sparse manifest missing; rebuild required", 503) from exc
 
     def cleanup(self, ticket):
-        for name in self.dense.owned_names(ticket.profile_id):
-            self.dense.delete(name)
-        directory = self.index_root / ticket.profile_id
-        if directory.exists():
-            shutil.rmtree(directory)
-        if directory.exists() or self.dense.owned_names(ticket.profile_id):
-            raise EvidenceError("CLEANUP_PENDING", "External index cleanup is pending", 503)
+        # Tickets name captured generations, never an owner's current entire tree.
+        for manifest in self.store.cleanup_manifests(ticket):
+            expected_name = 'evidence_' + manifest.generation_id.replace('-', '')
+            relative = Path(manifest.sparse_relpath)
+            expected_path = Path(ticket.profile_id) / manifest.generation_id
+            if (manifest.dense_collection != expected_name or relative != expected_path
+                    or relative.is_absolute()):
+                raise EvidenceError('CLEANUP_PENDING', 'Captured index ownership could not be verified', 503)
+            directory = self.index_root / relative
+            if (directory.is_symlink() or directory.parent.is_symlink()
+                    or directory.resolve() != self.index_root.resolve() / expected_path):
+                raise EvidenceError('CLEANUP_PENDING', 'Captured index path could not be verified', 503)
+            if manifest.dense_collection in self.dense.names():
+                metadata = self.dense.get(manifest.dense_collection).metadata or {}
+                if (metadata.get('profile_id') != ticket.profile_id
+                        or metadata.get('generation_id') != manifest.generation_id):
+                    raise EvidenceError('CLEANUP_PENDING', 'Captured dense ownership could not be verified', 503)
+            self.dense.delete(manifest.dense_collection)
+            if directory.exists():
+                shutil.rmtree(directory)
+            if directory.exists() or manifest.dense_collection in self.dense.names():
+                raise EvidenceError('CLEANUP_PENDING', 'Captured index cleanup is pending', 503)
         self.store.complete_cleanup(ticket.id)
 
     def recover(self):

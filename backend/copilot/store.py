@@ -3,7 +3,7 @@ import hashlib
 import json
 import sqlite3
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,6 +56,11 @@ class Store:
         with self._tx() as db:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS profiles(id TEXT PRIMARY KEY, data TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS profile_revisions(owner TEXT PRIMARY KEY,
+                    metadata INTEGER NOT NULL DEFAULT 0, facts INTEGER NOT NULL DEFAULT 0,
+                    documents INTEGER NOT NULL DEFAULT 0, consent INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS fact_metadata(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
+                    data TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS records(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
                     kind TEXT NOT NULL, data TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS record_owner ON records(owner,kind);
@@ -66,6 +71,11 @@ class Store:
                     kind TEXT NOT NULL);
             ''')
         # executescript commits implicitly; reconcile in a fresh writer transaction.
+        with self._tx() as db:
+            for owner, serialized in db.execute('SELECT id,data FROM profiles').fetchall():
+                revision = json.loads(serialized)['revision']
+                db.execute('INSERT OR IGNORE INTO profile_revisions(owner,facts,documents) VALUES(?,?,?)',
+                           (owner, revision, revision))
         self.reconcile_blobs()
 
     def _reconcile_blobs(self, db):
@@ -124,11 +134,17 @@ class Store:
         db.execute('INSERT INTO records VALUES(?,?,?,?)',
                    (value.id, owner, kind, json.dumps(asdict(value))))
 
-    def _bump(self, db, owner):
+    def _bump(self, db, owner, corpus=None):
         p = self._profile(db, owner)
+        db.execute('INSERT OR IGNORE INTO profile_revisions(owner) VALUES(?)', (owner,))
+        if corpus in ('facts', 'documents'):
+            db.execute(f'UPDATE profile_revisions SET {corpus}={corpus}+1 WHERE owner=?', (owner,))
         updated = Profile(p.id, p.name, p.sectors, p.revision + 1)
         db.execute('UPDATE profiles SET data=? WHERE id=?', (json.dumps(asdict(updated)), owner))
-        db.execute("UPDATE manifests SET state='retired' WHERE owner=?", (owner,))
+        if corpus in ('facts', 'documents'):
+            db.execute("UPDATE manifests SET state='retired' WHERE owner=? AND corpus=?", (owner, corpus))
+        else:
+            db.execute("UPDATE manifests SET state='retired' WHERE owner=?", (owner,))
         return updated
 
     def _blob(self, source_id):
@@ -139,8 +155,8 @@ class Store:
         return path
 
     def create_profile(self, name, sectors):
-        if not isinstance(name, str) or not name.strip() or len(name) > 100:
-            fail('INVALID_INPUT', 'Name must contain 1–100 characters', 400)
+        if not isinstance(name, str) or not name.strip() or len(name) > 200:
+            fail('INVALID_INPUT', 'Name must contain 1–200 characters', 400)
         if not isinstance(sectors, list) or not sectors or any(s not in ('tech', 'finance') for s in sectors):
             fail('INVALID_INPUT', 'Choose tech or finance sectors', 400)
         p = Profile(str(uuid.uuid4()), name.strip(), list(dict.fromkeys(sectors)), 0)
@@ -209,7 +225,7 @@ class Store:
                     unit = Unit(str(uuid.uuid4()), profile_id, source.id, n,
                                 n + 1 if media_type == 'application/pdf' else None, text, digest(text))
                     self._put(db, profile_id, 'unit', unit)
-                self._bump(db, profile_id)
+                self._bump(db, profile_id, 'documents')
         except BaseException:
             path.unlink(missing_ok=True)
             raise
@@ -236,7 +252,7 @@ class Store:
                         datetime.now(timezone.utc).isoformat(),
                         'document_derived' if origin else 'manual', origin)
             self._put(db, profile_id, 'fact', fact)
-            self._bump(db, profile_id)
+            self._bump(db, profile_id, 'facts')
         return fact
 
     @staticmethod
@@ -244,10 +260,17 @@ class Store:
         if type(start) is not int or type(end) is not int or not 0 <= start < end <= len(text):
             fail('INVALID_INPUT', 'Invalid canonical span', 400)
 
+    def _corpus_revision(self, db, owner, corpus):
+        corpus_name(corpus)
+        p = self._profile(db, owner)
+        db.execute('INSERT OR IGNORE INTO profile_revisions(owner,facts,documents) VALUES(?,?,?)',
+                   (owner, p.revision, p.revision))
+        return db.execute(f'SELECT {corpus} FROM profile_revisions WHERE owner=?', (owner,)).fetchone()[0]
+
     def snapshot(self, profile_id, corpus, chunker):
         corpus_name(corpus)
         with self._tx() as db:
-            p = self._profile(db, profile_id)
+            self._profile(db, profile_id)
             values = []
             kind = 'fact' if corpus == 'facts' else 'unit'
             for row in db.execute('SELECT data FROM records WHERE owner=? AND kind=? ORDER BY id', (profile_id, kind)):
@@ -269,11 +292,12 @@ class Store:
             db.execute("DELETE FROM records WHERE owner=? AND kind=?", (profile_id, 'chunk:' + corpus))
             for c in values:
                 self._put(db, profile_id, 'chunk:' + corpus, c)
-            return Snapshot(profile_id, corpus, p.revision, tuple(sorted(values, key=lambda c: c.id)))
+            return Snapshot(profile_id, corpus, self._corpus_revision(db, profile_id, corpus), tuple(sorted(values, key=lambda c: c.id)))
 
-    def validate_snapshot(self, profile_id, revision):
+    def validate_snapshot(self, profile_id, revision, corpus=None):
         with self._tx() as db:
-            if self._profile(db, profile_id).revision != revision:
+            current = self._corpus_revision(db, profile_id, corpus) if corpus else self._profile(db, profile_id).revision
+            if current != revision:
                 fail('CONFLICT', 'Evidence changed; rebuild required', 409)
 
     def publish_manifest(self, manifest, expected_revision):
@@ -283,7 +307,7 @@ class Store:
             p = self._profile(db, manifest.profile_id)
             ids = sorted(r[0] for r in db.execute('SELECT id FROM records WHERE owner=? AND kind=?', (p.id, 'chunk:' + manifest.corpus)))
             # Retrieval contract uses newline-joined sorted IDs.
-            if p.revision != expected_revision or manifest.revision != expected_revision:
+            if self._corpus_revision(db, p.id, manifest.corpus) != expected_revision or manifest.revision != expected_revision:
                 fail('CONFLICT', 'Evidence changed; rebuild required', 409)
             if manifest.chunk_count != len(ids) or manifest.chunk_ids_sha256 != digest('\n'.join(ids)):
                 fail('CONFLICT', 'Index chunk set mismatch', 409)
@@ -298,7 +322,7 @@ class Store:
             if not row:
                 return None
             value = Manifest(**json.loads(row[0]))
-            return value if value.revision == p.revision else None
+            return value if value.revision == self._corpus_revision(db, p.id, corpus) else None
 
     def eligible_chunks(self, profile_id, corpus, chunk_ids, source_ids=None):
         corpus_name(corpus)
@@ -364,9 +388,84 @@ class Store:
                 result.update(provenance=obj['provenance'], confirmed_at=obj['confirmed_at'], origin=obj['origin'], origin_label='proposal origin, not semantic proof')
             return result
 
-    def _delete(self, owner, source_id=None, fact_id=None, profile=False):
-        with self._tx() as db:
+    @staticmethod
+    def _workspace_state(db, owner):
+        return db.execute("SELECT id,data FROM records WHERE owner=? AND kind LIKE 'workspace:%' ORDER BY id", (owner,)).fetchall()
+
+    @staticmethod
+    def _metadata_revision(db, owner):
+        row = db.execute('SELECT metadata FROM profile_revisions WHERE owner=?', (owner,)).fetchone()
+        return row[0] if row else 0
+
+    def _invalidate_workspace_changes(self, db, owner, before, revision):
+        # Tokens are monotonic, not a promise of one increment per compound action.
+        # Nested forgetting must invalidate once before the outer operation returns.
+        if self._workspace_state(db, owner) != before and self._metadata_revision(db, owner) == revision:
+            db.execute('INSERT OR IGNORE INTO profile_revisions(owner) VALUES(?)', (owner,))
+            db.execute('UPDATE profile_revisions SET metadata=metadata+1 WHERE owner=?', (owner,))
+
+    def forget_proposal_origin(self, db, owner, proposal, legacy_source=None):
+        """Forget only source-linked raw lineage; never another interview question."""
+        before = self._workspace_state(db, owner)
+        revision = self._metadata_revision(db, owner)
+        source = legacy_source or {'kind': proposal['origin'], 'id': proposal.get('origin_id')}
+        relations = [(rid, json.loads(text)) for rid, text in db.execute(
+            "SELECT id,data FROM records WHERE owner=? AND kind='workspace:legacy_relation'", (owner,))]
+        for rid, relation in relations:
+            if relation['proposal_id'] == proposal['id']:
+                source = relation['legacy_source']
+                db.execute('DELETE FROM records WHERE id=? AND owner=?', (rid, owner))
+        origin_id = source.get('id')
+        if source['kind'] == 'interview' and origin_id:
+            question_id = source.get('question_id')
+            answers = [(rid, json.loads(text)) for rid, text in db.execute(
+                "SELECT id,data FROM records WHERE owner=? AND kind='workspace:interview_answer'", (owner,))]
+            archives = [(rid, json.loads(text)) for rid, text in db.execute(
+                "SELECT id,data FROM records WHERE owner=? AND kind='workspace:interview_archive'", (owner,))]
+            for rid, answer in answers:
+                if rid == origin_id:
+                    question_id = answer['question_id']
+            for _, archive in archives:
+                if archive['answer']['id'] == origin_id:
+                    question_id = archive['answer']['question_id']
+            removed_ids = {origin_id}
+            for rid, answer in answers:
+                if rid == origin_id or question_id and answer['question_id'] == question_id:
+                    removed_ids.add(rid)
+                    db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)', (rid, owner, 'workspace:interview_answer'))
+                    db.execute('DELETE FROM records WHERE id=? AND owner=?', (rid, owner))
+            for rid, archive in archives:
+                if archive['answer']['id'] == origin_id or question_id and archive['answer']['question_id'] == question_id:
+                    removed_ids.add(archive['answer']['id'])
+                    db.execute('DELETE FROM records WHERE id=? AND owner=?', (rid, owner))
+            for rid, text in db.execute("SELECT id,data FROM records WHERE owner=? AND kind='workspace:proposal'", (owner,)).fetchall():
+                value = json.loads(text)
+                if value['status'] == 'pending' and value.get('origin_id') in removed_ids and value['origin'] == 'interview':
+                    db.execute('DELETE FROM records WHERE id=? AND owner=?', (rid, owner))
+            for relation_id, relation in relations:
+                related_source = relation['legacy_source']
+                if (related_source.get('kind') == 'interview' and question_id
+                        and related_source.get('question_id') == question_id):
+                    row = db.execute("SELECT data FROM records WHERE id=? AND owner=? AND kind='workspace:proposal'",
+                                     (relation['proposal_id'], owner)).fetchone()
+                    if row and json.loads(row[0])['status'] == 'pending':
+                        db.execute('DELETE FROM records WHERE id=? AND owner=?', (relation['proposal_id'], owner))
+                        db.execute('DELETE FROM records WHERE id=? AND owner=?', (relation_id, owner))
+            for rid, text in db.execute("SELECT id,data FROM records WHERE owner=? AND kind='workspace:interview_progress'", (owner,)).fetchall():
+                value = json.loads(text)
+                value['answer_ids'] = [answer_id for answer_id in value['answer_ids'] if answer_id not in removed_ids]
+                db.execute('UPDATE records SET data=? WHERE id=?', (json.dumps(value), rid))
+        if source['kind'] in ('application_feedback', 'application') and origin_id:
+            db.execute("DELETE FROM records WHERE owner=? AND kind='workspace:history' AND (id=? OR json_extract(data,'$.application_id')=?)", (owner, origin_id, origin_id))
+        if proposal['origin'] == 'legacy' or source['kind'] in ('interview', 'application', 'application_feedback'):
+            db.execute("DELETE FROM records WHERE owner=? AND kind='workspace:legacy_archive'", (owner,))
+        self._invalidate_workspace_changes(db, owner, before, revision)
+
+    def _delete(self, owner, source_id=None, fact_id=None, profile=False, transaction=None):
+        with nullcontext(transaction) if transaction is not None else self._tx() as db:
             self._profile(db, owner)
+            workspace_before = self._workspace_state(db, owner)
+            metadata_before = self._metadata_revision(db, owner)
             if source_id:
                 self._record(db, owner, source_id, 'source')
             if fact_id:
@@ -383,16 +482,52 @@ class Store:
             for rid, kind, obj in rows:
                 if kind == 'fact' and (profile or rid == fact_id or (obj['origin'] and obj['origin']['unit_id'] in units)):
                     facts.append(rid)
-            generations = [r[0] for r in db.execute('SELECT id FROM manifests WHERE owner=?', (owner,))]
+            if source_id:
+                for rid, serialized in db.execute('SELECT id,data FROM fact_metadata WHERE owner=?', (owner,)):
+                    metadata = json.loads(serialized)
+                    if any(span.get('unit_id') in units for span in metadata.get('source_spans', [])) and rid not in facts:
+                        facts.append(rid)
+            affected = {'facts', 'documents'} if profile else ({'documents'} if source_id else {'facts'})
+            if facts:
+                affected.add('facts')
+            generations = [r[0] for r in db.execute('SELECT id,corpus FROM manifests WHERE owner=?', (owner,)) if r[1] in affected]
             for rid, kind, obj in rows:
-                if profile or rid in sources or rid in facts or rid in units or kind.startswith('chunk:'):
+                if profile or rid in sources or rid in facts or rid in units or kind in {'chunk:' + corpus for corpus in affected}:
                     db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)', (rid, owner, kind))
                     db.execute('DELETE FROM records WHERE id=?', (rid,))
-            self._bump(db, owner)
+            for rid in facts:
+                metadata = db.execute('SELECT data FROM fact_metadata WHERE id=? AND owner=?', (rid, owner)).fetchone()
+                if metadata:
+                    proposal_id = json.loads(metadata[0])['proposal_id']
+                    proposal_row = db.execute('SELECT data FROM records WHERE id=? AND owner=? AND kind=?',
+                                              (proposal_id, owner, 'workspace:proposal')).fetchone()
+                    if proposal_row:
+                        proposal = json.loads(proposal_row[0])
+                        self.forget_proposal_origin(db, owner, proposal, json.loads(metadata[0]).get('legacy_source'))
+                    db.execute('DELETE FROM records WHERE id=? AND owner=? AND kind=?',
+                               (proposal_id, owner, 'workspace:proposal'))
+                db.execute('DELETE FROM fact_metadata WHERE id=? AND owner=?', (rid, owner))
+            # Document-derived pending proposals cannot survive loss of their sources.
+            for rid, kind, obj in rows:
+                if kind == 'workspace:proposal' and any(span.get('unit_id') in units for span in obj.get('source_spans', [])):
+                    db.execute('DELETE FROM records WHERE id=? AND owner=?', (rid, owner))
+            if facts or sources:
+                # Immutable uploaded legacy backups can contain revoked factual text;
+                # remove the whole owned backup rather than edit original bytes.
+                db.execute("DELETE FROM records WHERE owner=? AND kind='workspace:legacy_archive'", (owner,))
+            self._invalidate_workspace_changes(db, owner, workspace_before, metadata_before)
+            self._bump(db, owner, 'documents' if source_id else 'facts')
+            if source_id and facts:
+                db.execute('UPDATE profile_revisions SET facts=facts+1 WHERE owner=?', (owner,))
+                db.execute("UPDATE manifests SET state='retired' WHERE owner=? AND corpus='facts'", (owner,))
             if profile:
+                db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)', (owner, owner, 'profile'))
+                db.execute('DELETE FROM fact_metadata WHERE owner=?', (owner,))
+                db.execute('DELETE FROM profile_revisions WHERE owner=?', (owner,))
                 db.execute('DELETE FROM profiles WHERE id=?', (owner,))
             ticket = CleanupTicket(str(uuid.uuid4()), owner, generations, sources, facts)
-            db.execute('INSERT INTO tickets VALUES(?,?)', (ticket.id, json.dumps(asdict(ticket))))
+            ticket_data = asdict(ticket)
+            db.execute('INSERT INTO tickets VALUES(?,?)', (ticket.id, json.dumps(ticket_data)))
             return ticket
 
     def revoke_fact(self, profile_id, fact_id):
@@ -403,6 +538,17 @@ class Store:
 
     def delete_profile(self, profile_id):
         return self._delete(profile_id, profile=True)
+
+    def cleanup_manifests(self, ticket):
+        with self._tx() as db:
+            result = []
+            for generation_id in ticket.generation_ids:
+                identifier(generation_id)
+                row = db.execute('SELECT data FROM manifests WHERE id=? AND owner=?',
+                                 (generation_id, ticket.profile_id)).fetchone()
+                if row:
+                    result.append(Manifest(**json.loads(row[0])))
+            return result
 
     def pending_cleanup(self):
         with self._tx() as db:

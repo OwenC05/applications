@@ -8,7 +8,7 @@ from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 
 from .config import Settings, data_lock
 from .contracts import Citation, EvidenceError, Span
@@ -21,7 +21,7 @@ class Input(BaseModel):
 
 
 class ProfileInput(Input):
-    name: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=200)
     sectors: list[Literal["tech", "finance"]] = Field(min_length=1, max_length=2)
 
 
@@ -71,6 +71,13 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
     app.state.store = store
     app.state.token = token
     app.state.service = None
+    from .domain import contracts as domain
+    from .domain import interview
+    from .domain import repository as workspace
+    from .domain.migrations import LegacyImporter
+    repository = workspace.DomainRepository(store)
+    app.state.repository = repository
+    importer = LegacyImporter(repository)
 
     def service():
         if app.state.service is None:
@@ -103,7 +110,10 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
         if request.url.path.startswith("/api/") and request.method not in {"GET", "HEAD"}:
             if not secrets.compare_digest(request.headers.get("x-evidence-token", ""), token):
                 return JSONResponse({"error": {"code": "INVALID_TOKEN", "message": "Reload the workbench."}}, 403)
-            maximum = 10 * 1024 * 1024 + 65536 if request.url.path.endswith("/sources") else 131072
+            maximum = (10 * 1024 * 1024 + 65536 if request.url.path.endswith("/sources")
+                       else 1024 * 1024 + 65536 if request.url.path in {
+                           '/api/workspace/import/legacy/dry-run', '/api/workspace/import/legacy/commit'}
+                       else 131072)
             body = bytearray()
             async for chunk in request.stream():
                 body.extend(chunk)
@@ -122,6 +132,7 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
     async def evidence_error(_request, error):
         return JSONResponse({"error": {"code": error.code, "message": error.safe_message}}, error.http_status)
 
+    @app.exception_handler(ValidationError)
     @app.exception_handler(RequestValidationError)
     async def validation_error(_request, _error):
         return JSONResponse({"error": {"code": "INVALID_INPUT", "message": "Check the supplied fields."}}, 422)
@@ -226,6 +237,163 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
     def delete_profile(profile_id: str):
         with data_lock(settings.data_dir):
             return finish_delete(store.delete_profile(profile_id))
+
+    async def workspace_input(request, model):
+        if request.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'application/json':
+            raise EvidenceError('INVALID_INPUT', 'Workspace mutations require application/json', 415)
+        # Strict models intentionally use JSON validation for tuple/time wire types.
+        return model.model_validate_json(await request.body())
+
+    @app.get('/api/workspace/status')
+    def workspace_status():
+        return domain.WorkspaceStatus(boot_token=token, capabilities=domain.WorkspaceCapabilities(
+            profile_management=True, interview=True, proposals=True, application_management=True))
+
+    @app.get('/api/workspace/profiles')
+    def workspace_profiles():
+        with data_lock(settings.data_dir):
+            return repository.profiles()
+
+    @app.post('/api/workspace/profiles')
+    async def workspace_create(request: Request):
+        body = await workspace_input(request, domain.ProfileCreate)
+        with data_lock(settings.data_dir):
+            return repository.create_profile(body)
+
+    @app.get('/api/workspace/profiles/{profile_id}')
+    def workspace_detail(profile_id: str):
+        with data_lock(settings.data_dir):
+            return repository.detail(profile_id)
+
+    @app.patch('/api/workspace/profiles/{profile_id}')
+    async def workspace_patch(profile_id: str, request: Request):
+        body = await workspace_input(request, domain.ProfilePatch)
+        with data_lock(settings.data_dir):
+            return repository.patch_profile(profile_id, body)
+
+    @app.delete('/api/workspace/profiles/{profile_id}')
+    def workspace_delete(profile_id: str):
+        with data_lock(settings.data_dir):
+            result = finish_delete(store.delete_profile(profile_id))
+            pending = isinstance(result, JSONResponse)
+            return domain.DeleteResult(deleted=True, cleanup_pending=pending)
+
+    @app.get('/api/workspace/profiles/{profile_id}/export')
+    def workspace_export(profile_id: str):
+        with data_lock(settings.data_dir):
+            return repository.export(profile_id)
+
+    @app.post('/api/workspace/profiles/{profile_id}/consent')
+    async def workspace_consent(profile_id: str, request: Request):
+        body = await workspace_input(request, workspace.ConsentInput)
+        with data_lock(settings.data_dir):
+            return repository.consent(profile_id, body)
+
+    @app.get('/api/workspace/profiles/{profile_id}/facts')
+    def workspace_facts(profile_id: str):
+        with data_lock(settings.data_dir):
+            return repository.facts(profile_id)
+
+    @app.post('/api/workspace/profiles/{profile_id}/proposals')
+    async def workspace_propose(profile_id: str, request: Request):
+        body = await workspace_input(request, workspace.ProposalInput)
+        with data_lock(settings.data_dir):
+            return repository.propose(profile_id, body)
+
+    @app.post('/api/workspace/profiles/{profile_id}/proposals/{proposal_id}/review')
+    async def workspace_review(profile_id: str, proposal_id: str, request: Request):
+        body = await workspace_input(request, workspace.ReviewInput)
+        with data_lock(settings.data_dir):
+            return repository.review(profile_id, proposal_id, body)
+
+    @app.delete('/api/workspace/profiles/{profile_id}/proposals/{proposal_id}')
+    async def workspace_proposal_delete(profile_id: str, proposal_id: str, request: Request):
+        body = await workspace_input(request, workspace.ProposalDelete)
+        with data_lock(settings.data_dir):
+            return repository.delete_proposal(profile_id, proposal_id, body)
+
+    @app.get('/api/workspace/profiles/{profile_id}/interview')
+    def workspace_questions(profile_id: str):
+        with data_lock(settings.data_dir):
+            detail = repository.detail(profile_id)
+            return {'schema_version': 1, 'questions': interview.questions(detail.profile.sectors),
+                    'progress': detail.interview, 'answers': detail.interview_answers}
+
+    @app.post('/api/workspace/profiles/{profile_id}/interview/answers')
+    async def workspace_answer(profile_id: str, request: Request):
+        body = await workspace_input(request, workspace.InterviewInput)
+        with data_lock(settings.data_dir):
+            return repository.answer(profile_id, body)
+
+    @app.patch('/api/workspace/profiles/{profile_id}/interview')
+    async def workspace_progress(profile_id: str, request: Request):
+        body = await workspace_input(request, workspace.ProgressInput)
+        with data_lock(settings.data_dir):
+            return repository.progress(profile_id, body)
+
+    @app.post('/api/workspace/profiles/{profile_id}/typed-values')
+    async def workspace_typed(profile_id: str, request: Request):
+        body = await workspace_input(request, workspace.TypedInput)
+        with data_lock(settings.data_dir):
+            return repository.typed(profile_id, body)
+
+    @app.delete('/api/workspace/profiles/{profile_id}/typed-values/{record_id}')
+    async def workspace_delete_typed(profile_id: str, record_id: str, request: Request):
+        body = await workspace_input(request, workspace.ExpectedMetadata)
+        with data_lock(settings.data_dir):
+            return repository.delete_typed(profile_id, record_id, body)
+
+    @app.post('/api/workspace/profiles/{profile_id}/applications')
+    async def workspace_application_create(profile_id: str, request: Request):
+        body = await workspace_input(request, workspace.ApplicationInput)
+        with data_lock(settings.data_dir):
+            return repository.create_application(profile_id, body)
+
+    @app.get('/api/workspace/profiles/{profile_id}/applications/{application_id}')
+    def workspace_application(profile_id: str, application_id: str):
+        with data_lock(settings.data_dir):
+            return repository.application(profile_id, application_id)
+
+    @app.patch('/api/workspace/profiles/{profile_id}/applications/{application_id}')
+    async def workspace_application_patch(profile_id: str, application_id: str, request: Request):
+        body = await workspace_input(request, workspace.ApplicationPatch)
+        with data_lock(settings.data_dir):
+            return repository.patch_application(profile_id, application_id, body)
+
+    @app.delete('/api/workspace/profiles/{profile_id}/applications/{application_id}')
+    async def workspace_application_delete(profile_id: str, application_id: str, request: Request):
+        body = await workspace_input(request, workspace.ApplicationPatch)
+        if body.model_fields_set - {'schema_version', 'expected_input_revision', 'expected_output_revision'}:
+            raise EvidenceError('INVALID_INPUT', 'Deletion accepts only expected revisions')
+        with data_lock(settings.data_dir):
+            return repository.delete_application(profile_id, application_id, body)
+
+    @app.get('/api/workspace/profiles/{profile_id}/applications/{application_id}/history')
+    def workspace_history(profile_id: str, application_id: str):
+        with data_lock(settings.data_dir):
+            return repository.history(profile_id, application_id)
+
+    @app.post('/api/workspace/profiles/{profile_id}/applications/{application_id}/history')
+    async def workspace_feedback(profile_id: str, application_id: str, request: Request):
+        body = await workspace_input(request, workspace.FeedbackInput)
+        with data_lock(settings.data_dir):
+            return repository.feedback(profile_id, application_id, body)
+
+    @app.post('/api/workspace/import/legacy/dry-run')
+    def workspace_legacy_dry_run(file: UploadFile = File(...)):
+        selected = file.file.read(1024 * 1024 + 1)
+        with data_lock(settings.data_dir):
+            return importer.run(selected)
+
+    @app.post('/api/workspace/import/legacy/commit')
+    def workspace_legacy_commit(request: Request, file: UploadFile = File(...)):
+        # Explicit exact-byte consent: send the hash returned by a prior dry-run.
+        if request.headers.get('x-confirm-legacy-import') != 'true':
+            raise EvidenceError('INVALID_INPUT', 'Explicit legacy import confirmation required')
+        selected = file.file.read(1024 * 1024 + 1)
+        with data_lock(settings.data_dir):
+            return importer.run(selected, commit=True,
+                                expected_sha256=request.headers.get('x-legacy-source-sha256'))
 
     ui = Path(__file__).resolve().parent.parent / "ui"
 

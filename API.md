@@ -1,8 +1,9 @@
 # API and module contract — Application Copilot
 
 The sections below describe the preserved Node MVP. The additive Python evidence
-API uses `/api/evidence`; its workbench is separate. The new Python workspace
-contract is documented at the end and is not yet a service capability.
+API uses `/api/evidence`; its workbench is separate. Python workspace data
+services use `/api/workspace`, documented below. Research, drafting, durable
+jobs and browser capabilities are separate implementation gates.
 
 All JSON API requests except GET /api/status require X-Copilot-Token from status. Mutations require application/json. Bind 127.0.0.1; host/origin checks; no CORS; no provider keys in client responses. Envelope: success JSON data directly; failure {error,message?} with status 400/403/404/409/413/422/502/503 as applicable.
 
@@ -75,7 +76,7 @@ Optional POST /api/profiles/:id/import-listings {} -> {profile,imported,skipped,
 ## Frontend flows
 Sidebar: Overview / Opportunities / Interview / Brain / Applications / Settings. Profile selector always explicit; blank profiles by default, separate clearly labelled demo. Every mutation uses token; render untrusted text via textContent/escaping. State persists on server, selected profile may be localStorage identifier only. Manual role form accepts both sectors and multi-line real application questions, user-supplied company URL/JD; user confirms official company domain. Research panel shows timestamp, source links and inferred labels. Draft screen shows evidence/gaps/limit counters, edit/copy/export, review before explicit mark submitted. Brain pending inbox confirm/reject/conflict/edit/forget. Onboarding save+continue, skip, resume, adaptive followup opt-in; never force hour. Settings explains plaintext local storage/provider retention/consent/key config and full delete/export scope. No fake cloud success or auto-submit buttons.
 
-## Python workspace contract — S0 candidate (services not yet implemented)
+## Python workspace contract — frozen S0 interfaces
 
 Authoritative schemas: `backend/copilot/domain/contracts.py`; strict version1,
 unknown fields rejected, UTC-aware times, code-point spans, canonical UTF-8 hashes.
@@ -92,7 +93,7 @@ checks apply to all workspace routes. Mutations use the existing `X-Evidence-Tok
 and JSON content type (except explicitly bounded file imports); a profile selector
 is not authentication against another local OS user.
 
-Frozen route groups (future, not assertions that these endpoints exist):
+Frozen route groups (data routes implemented in S1; later capabilities remain gated):
 - `GET /status`: WorkspaceStatus; boot token, version, configured-key boolean and
   qualified capabilities. Never return the key; default capabilities false.
 - `GET /profiles`: versioned ProfileList `{schema_version,profiles}` envelope.
@@ -138,3 +139,58 @@ host-only permission. Initial completed multi-step payloads require one endpoint
 multi-endpoint forms/uploads remain manual until separately scoped contracts and
 adapter qualification support them. S2 reconciles existing nested sparse paths
 through canonical manifests, without inventing legacy worker leases/fences.
+
+### Implemented S1 data routes and concurrency
+
+Base path: `/api/workspace`. JSON mutations require `application/json`, the
+boot-session `X-Evidence-Token`, and strict versioned input models. A `409` means
+reload current revisions; do not automatically replay a stale write. Status
+enables profile management, interview, proposals and application management only.
+No research/draft/fill/submit readiness is inferred from storing an application.
+
+| Route | Input / result |
+| --- | --- |
+| `GET /profiles/{id}/interview` | `{schema_version,questions,progress,answers}`; canonical sector-filtered bank. |
+| `POST .../interview/answers` | `expected_metadata_revision,question_id,answer`; canonical prompt and a pending proposal, never automatic confirmation. |
+| `PATCH .../interview` | `expected_metadata_revision,skipped_question_ids,completed`; resume/skip/finish early. |
+| `POST .../consent` | `expected_consent_revision,provider,purposes,granted`; explicit research/drafting/assessment purposes and server timestamp. |
+| `GET .../facts` | Versioned canonical facts plus their confirmation metadata; same authority as `/api/evidence`. |
+| `POST .../proposals` | `expected_metadata_revision,text,source_spans?,supersedes_fact_id?`; pending only. |
+| `POST .../proposals/{proposal_id}/review` | `expected_metadata_revision,expected_facts_revision,action,confirmed?,text?`; confirmation requires affirmative `confirmed:true`. |
+| `DELETE .../proposals/{proposal_id}` | Expected metadata and facts revisions; forget linked raw origins and confirmed derivatives, returning cleanup status. |
+| `POST .../typed-values` | Expected metadata revision, kind/field/value/purpose, optional jurisdiction/application, and `explicitly_confirmed:true`; excluded from story retrieval. |
+| `DELETE .../typed-values/{record_id}` | Expected metadata revision. |
+| `POST .../applications` | Expected metadata revision plus company/role/sector/vacancy URL and optional location/company URL/JD/questions/official domains. |
+| `GET .../applications/{application_id}` | Stored application input and input/output revisions. |
+| `PATCH .../applications/{application_id}` | Expected input **and output** revisions plus actual input edits. |
+| `DELETE .../applications/{application_id}` | Expected input and output revisions; revoke dependent feedback facts rather than orphan their provenance. |
+| `GET .../applications/{application_id}/history` | Immutable feedback/user-reported outcome snapshots. |
+| `POST .../applications/{application_id}/history` | Expected input/output revisions, event UUID, text and optional `feedback`/`user_reported_submitted` kind; creates a pending memory proposal. Not an observed employer receipt. |
+| `GET /profiles/{id}/export` | Explicit private download of owned domain/evidence records and archives; no credentials. |
+
+Optional `schema_version` is exactly integer `1`. Application questions retain
+their declared word/character limits. Typed values and imported/generated wording
+do not acquire factual authority merely by being stored, reviewed or exported.
+
+### Explicit selected-byte legacy import
+
+`POST /import/legacy/dry-run` and `POST /import/legacy/commit` accept a bounded
+multipart `file` containing **one selected Node profile export**, at most 1 MiB.
+Commit additionally requires `X-Confirm-Legacy-Import: true` and
+`X-Legacy-Source-Sha256` equal to the dry-run byte hash. No directory discovery,
+automatic `.data` read, cross-profile merge, overwrite or inferred URL is allowed.
+Collisions, repeat imports, malformed references and changed bytes fail before an
+atomic commit. The original bytes remain in a private immutable archive until
+forgetting affected content requires removal of that archive.
+
+Legacy verification/provenance and valid interview/application source edges are
+retained honestly. Pending corrections preserve their supersession relation but
+cannot replace old facts before explicit confirmation. Cloud consent is reset;
+old research, drafts and reviewed/submitted history are archives, not current
+research/support approvals or receipt-confirmed submissions. Applications without
+a valid vacancy URL remain archived. Node storage is never changed by import.
+
+Deletion preserves unrelated question history, canonical facts and corpus
+indexes. External cleanup targets captured generation identities, not an owner's
+whole index directory. Cleanup may remain pending during Chroma failure; logical
+revocation is not a promise of forensic erasure or deletion of external backups.
