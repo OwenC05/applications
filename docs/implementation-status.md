@@ -1,0 +1,36 @@
+# Implementation checkpoints
+
+The reviewed S0–S12 roadmap is now authorized for implementation. Historical
+planning-only notices in the frozen planning files describe that earlier stage,
+not a current ban on building. Acceptance and privacy boundaries are unchanged.
+
+## Published foundations
+
+- **S0:** strict domain/revision/provenance/job/approval contracts and 46 contract
+  regressions. Independent code review approved; architecture clear.
+- **S3 preparation only:** anonymous static HTTPS acquisition with exact-host
+  policy, validated pinned IP connections, bounded original bytes, verified TLS,
+  canonical extraction and provenance hashes. HTML/PDF parsing runs in bounded
+  processes. The hostile 1.4 MiB HTML regression and timeout kill/reap tests pass.
+  One actual public static HTTPS download also passed without personal data or
+  paid calls. This is **not** a research broker, company/exact-role completeness
+  assessment or renderer, and does **not** complete S3.
+
+## Qualification boundaries
+
+The port-443 hostile-receiver test could not bind its privileged port on this
+host and remains skipped. An unprivileged rejected-URL receiver test observed
+zero connections; that and one successful public fetch do not establish the
+entire deployed DNS/TLS containment matrix. Process resource limits are not an
+OS security sandbox, nor a hard real-time scheduling guarantee.
+
+Cloud quality evaluation needs separately configured credentials, explicit
+purpose consent and budget. Docker runtime, consistent restore, independent
+friend installations and later companion installations are actual release gates,
+not outcomes inferred from configuration or synthetic mocks. No live employer
+application actions are authorized by implementation tests.
+
+The preserved Node app and Python evidence workbench remain runnable separately.
+Python application drafting and browser automation stay unavailable until their
+own integration, exact-text support and independent review gates pass. Each
+friend uses an independent local installation, not a hosted shared account.
