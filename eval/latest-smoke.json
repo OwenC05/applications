@@ -1,0 +1,1907 @@
+{
+  "dataset": "frozen-v2: 10 synthetic facts, 12 queries, 2 unanswerable",
+  "dataset_sha256": "a408c56a4912ae923bb69694fcc0836c4dfabb6fae29fc423ce5eeb57d8d5d61",
+  "not_production_quality_evidence": true,
+  "contradictions_are_relevant_quotes_not_resolved_truth": true,
+  "unanswerables_excluded_from_quality_averages": true,
+  "metric_definition": "Binary unique fact-key relevance; @8; MRR truncated at8; top1 for answerables only",
+  "model_fingerprint": "874fed87869f2904717cb17ef8a1fc80a4f3b28f1ce8d7c7a77b5eaea3278f99",
+  "build_seconds": 17.816779597999812,
+  "warm_latency_tiny_dataset_only": {
+    "queries": 12,
+    "p50_seconds": 1.2996704439997302,
+    "p95_seconds_nearest_rank": 1.9940242080001553,
+    "not_1000_chunk_benchmark": true
+  },
+  "summary": {
+    "dense": {
+      "answerable_queries": 10,
+      "recall_at_8": 1.0,
+      "ndcg_at_8": 0.9693426403617271,
+      "mrr_at_8": 0.95,
+      "top1_accuracy": 0.9
+    },
+    "bm25": {
+      "answerable_queries": 10,
+      "recall_at_8": 1.0,
+      "ndcg_at_8": 0.9693426403617271,
+      "mrr_at_8": 0.95,
+      "top1_accuracy": 0.9
+    },
+    "hybrid_reranked": {
+      "answerable_queries": 10,
+      "recall_at_8": 1.0,
+      "ndcg_at_8": 0.9693426403617271,
+      "mrr_at_8": 0.95,
+      "top1_accuracy": 0.9
+    }
+  },
+  "results": [
+    {
+      "key": "tech_api_exact",
+      "query": "Python REST API automated regression tests",
+      "kind": "duplicate_evidence",
+      "relevant_fact_keys": [
+        "tech_api",
+        "tech_api_duplicate"
+      ],
+      "metrics": {
+        "dense": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "bm25": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "hybrid_reranked": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        }
+      },
+      "returned": {
+        "dense": [
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          }
+        ],
+        "bm25": [
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          }
+        ],
+        "hybrid_reranked": [
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          }
+        ]
+      },
+      "unanswerable_warning": null,
+      "retrieval_seconds": 1.028108947999499
+    },
+    {
+      "key": "tech_sql",
+      "query": "SQL PostgreSQL joins and database schema design",
+      "kind": "tech",
+      "relevant_fact_keys": [
+        "tech_sql"
+      ],
+      "metrics": {
+        "dense": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "bm25": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "hybrid_reranked": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        }
+      },
+      "returned": {
+        "dense": [
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          }
+        ],
+        "bm25": [
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          }
+        ],
+        "hybrid_reranked": [
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          }
+        ]
+      },
+      "unanswerable_warning": null,
+      "retrieval_seconds": 1.176777664999463
+    },
+    {
+      "key": "tech_ops",
+      "query": "Docker packaging and GitHub Actions continuous integration",
+      "kind": "tech",
+      "relevant_fact_keys": [
+        "tech_ops"
+      ],
+      "metrics": {
+        "dense": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "bm25": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "hybrid_reranked": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        }
+      },
+      "returned": {
+        "dense": [
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          }
+        ],
+        "bm25": [
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          }
+        ],
+        "hybrid_reranked": [
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          }
+        ]
+      },
+      "unanswerable_warning": null,
+      "retrieval_seconds": 1.3627489000000423
+    },
+    {
+      "key": "finance_dcf",
+      "query": "discounted cash flow valuation and financial analysis",
+      "kind": "finance",
+      "relevant_fact_keys": [
+        "finance_dcf"
+      ],
+      "metrics": {
+        "dense": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "bm25": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "hybrid_reranked": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        }
+      },
+      "returned": {
+        "dense": [
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          }
+        ],
+        "bm25": [
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          }
+        ],
+        "hybrid_reranked": [
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          }
+        ]
+      },
+      "unanswerable_warning": null,
+      "retrieval_seconds": 1.480332112000724
+    },
+    {
+      "key": "finance_risk",
+      "query": "borrower credit risk leverage debt service downside scenario",
+      "kind": "finance",
+      "relevant_fact_keys": [
+        "finance_risk"
+      ],
+      "metrics": {
+        "dense": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "bm25": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "hybrid_reranked": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        }
+      },
+      "returned": {
+        "dense": [
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          }
+        ],
+        "bm25": [
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          }
+        ],
+        "hybrid_reranked": [
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          }
+        ]
+      },
+      "unanswerable_warning": null,
+      "retrieval_seconds": 1.9940242080001553
+    },
+    {
+      "key": "finance_accounting",
+      "query": "reconcile income statement balance sheet cash flow accounts",
+      "kind": "finance",
+      "relevant_fact_keys": [
+        "finance_accounting"
+      ],
+      "metrics": {
+        "dense": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "bm25": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "hybrid_reranked": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        }
+      },
+      "returned": {
+        "dense": [
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          }
+        ],
+        "bm25": [
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          }
+        ],
+        "hybrid_reranked": [
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          }
+        ]
+      },
+      "unanswerable_warning": null,
+      "retrieval_seconds": 1.449073836000025
+    },
+    {
+      "key": "team_conflict",
+      "query": "How many people were on the Aurora student team?",
+      "kind": "contradiction_quotes_not_truth",
+      "relevant_fact_keys": [
+        "team_four",
+        "team_two_conflict"
+      ],
+      "metrics": {
+        "dense": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "bm25": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "hybrid_reranked": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        }
+      },
+      "returned": {
+        "dense": [
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          }
+        ],
+        "bm25": [
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          }
+        ],
+        "hybrid_reranked": [
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          }
+        ]
+      },
+      "unanswerable_warning": null,
+      "retrieval_seconds": 1.319062574999407
+    },
+    {
+      "key": "team_presentation",
+      "query": "coordinating the Aurora team and presenting findings",
+      "kind": "contradiction_quotes_not_truth",
+      "relevant_fact_keys": [
+        "team_four",
+        "team_two_conflict"
+      ],
+      "metrics": {
+        "dense": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "bm25": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "hybrid_reranked": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        }
+      },
+      "returned": {
+        "dense": [
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          }
+        ],
+        "bm25": [
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          }
+        ],
+        "hybrid_reranked": [
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          }
+        ]
+      },
+      "unanswerable_warning": null,
+      "retrieval_seconds": 1.2802783130000535
+    },
+    {
+      "key": "software_not_snakes",
+      "query": "experience building software APIs and testing Python programs, not wildlife snakes",
+      "kind": "lexical_distractor",
+      "relevant_fact_keys": [
+        "tech_api",
+        "tech_api_duplicate"
+      ],
+      "metrics": {
+        "dense": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 0.6934264036172708,
+          "mrr_at_8": 0.5,
+          "top1_accuracy": 0.0
+        },
+        "bm25": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 0.6934264036172708,
+          "mrr_at_8": 0.5,
+          "top1_accuracy": 0.0
+        },
+        "hybrid_reranked": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 0.6934264036172708,
+          "mrr_at_8": 0.5,
+          "top1_accuracy": 0.0
+        }
+      },
+      "returned": {
+        "dense": [
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          }
+        ],
+        "bm25": [
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          }
+        ],
+        "hybrid_reranked": [
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          }
+        ]
+      },
+      "unanswerable_warning": null,
+      "retrieval_seconds": 1.881286087999797
+    },
+    {
+      "key": "finance_downside",
+      "query": "experience evaluating whether a borrower can repay a loan during a downturn",
+      "kind": "finance_paraphrase",
+      "relevant_fact_keys": [
+        "finance_risk"
+      ],
+      "metrics": {
+        "dense": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "bm25": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        },
+        "hybrid_reranked": {
+          "recall_at_8": 1.0,
+          "ndcg_at_8": 1.0,
+          "mrr_at_8": 1.0,
+          "top1_accuracy": 1.0
+        }
+      },
+      "returned": {
+        "dense": [
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          }
+        ],
+        "bm25": [
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          }
+        ],
+        "hybrid_reranked": [
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          }
+        ]
+      },
+      "unanswerable_warning": null,
+      "retrieval_seconds": 1.233263175000502
+    },
+    {
+      "key": "unanswerable_clinical",
+      "query": "What surgical qualifications and clinical hospital experience does this person have?",
+      "kind": "unanswerable",
+      "relevant_fact_keys": [],
+      "metrics": {
+        "dense": null,
+        "bm25": null,
+        "hybrid_reranked": null
+      },
+      "returned": {
+        "dense": [
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          }
+        ],
+        "bm25": [
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          }
+        ],
+        "hybrid_reranked": [
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          }
+        ]
+      },
+      "unanswerable_warning": "Returned results are NOT semantic abstention or evidence that the requested claim is true",
+      "retrieval_seconds": 0.9380482610004037
+    },
+    {
+      "key": "unanswerable_visa",
+      "query": "Does this person hold a Japanese work visa or speak Japanese fluently?",
+      "kind": "unanswerable",
+      "relevant_fact_keys": [],
+      "metrics": {
+        "dense": null,
+        "bm25": null,
+        "hybrid_reranked": null
+      },
+      "returned": {
+        "dense": [
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          }
+        ],
+        "bm25": [
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "team_two_conflict",
+            "record_id": "6a12c1f8-42f9-4bc8-91f3-139bfa13181d",
+            "chunk_id": "a8d5b70659a3cc616228eacf65917f463432b94c3a04024431f82d6260542c1e"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "python_snake_distractor",
+            "record_id": "4f89e959-1c71-4b21-be70-3c3aef16cc63",
+            "chunk_id": "155f12d4af5f4d47b565dfad1f86b7e04f15f28ce685ab19e2756dc45ad79924"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          }
+        ],
+        "hybrid_reranked": [
+          {
+            "fact_key": "team_four",
+            "record_id": "860c0a71-9c7f-4016-bd55-bb2b2f940e2c",
+            "chunk_id": "611f5cc0b0fdd2ec34a8220072f418ddf7339cf422adf20e3a64cd19e39c7088"
+          },
+          {
+            "fact_key": "finance_dcf",
+            "record_id": "ff4d7306-3828-4e97-be3b-8b7eaac0a02b",
+            "chunk_id": "2e80678c9b26c6df7e46596704683c6db2dee64f0b82b47253fda49b7c213a86"
+          },
+          {
+            "fact_key": "tech_ops",
+            "record_id": "7cd1b6b9-4ee2-4a60-8ba4-314ea10186df",
+            "chunk_id": "92b04fc7f6447347383c118293a53126f30e2ab4762916fbe088688c9eaf9864"
+          },
+          {
+            "fact_key": "tech_sql",
+            "record_id": "6f0d1a32-4ca3-4f86-8bbf-3fb43f6a8421",
+            "chunk_id": "91e26030a9b02526829f03627c2e558b6496b8184784d69899b5e68e614f2656"
+          },
+          {
+            "fact_key": "tech_api_duplicate",
+            "record_id": "ced7eb0f-3219-4a32-bf43-a74438eb3bef",
+            "chunk_id": "12c3b09f7dd225220a778b7858d9277092e2a4cb1c34ae8dbc40136698a698cc"
+          },
+          {
+            "fact_key": "tech_api",
+            "record_id": "46c6d893-d130-473a-a32d-5167569c875f",
+            "chunk_id": "538a02a2bd9315a1a31c96cd9767086d03bb1434a979a5857020fc37fc09ba12"
+          },
+          {
+            "fact_key": "finance_accounting",
+            "record_id": "28683c81-59d4-489c-8991-b4a9e1243c54",
+            "chunk_id": "ccf6f4a8f671047a48198a08e78511b6349dc4dfa27da8c88e54f7167e51717b"
+          },
+          {
+            "fact_key": "finance_risk",
+            "record_id": "db51a4d3-5795-4402-9855-656df5f176b4",
+            "chunk_id": "07e34b271281fc4b4b3eda38424134555f3d230bacdda7a46ad461937d1932ff"
+          }
+        ]
+      },
+      "unanswerable_warning": "Returned results are NOT semantic abstention or evidence that the requested claim is true",
+      "retrieval_seconds": 1.1398952839999765
+    }
+  ]
+}

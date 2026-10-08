@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "freeze": "v2 labels frozen before model evaluation; no post-run tuning",
+  "purpose": "Small synthetic balanced tech/finance retrieval evaluation, not hiring or semantic truth validation",
+  "facts": [
+    {"key":"tech_api","text":"Implemented a Python REST API and wrote automated regression tests for the synthetic Aurora student project."},
+    {"key":"tech_api_duplicate","text":"Implemented a Python REST API and wrote automated regression tests for the synthetic Aurora student project."},
+    {"key":"tech_sql","text":"Designed PostgreSQL database tables and optimised SQL joins for a synthetic inventory application."},
+    {"key":"tech_ops","text":"Packaged a synthetic web service with Docker and configured continuous integration checks in GitHub Actions."},
+    {"key":"finance_dcf","text":"Built a discounted cash flow valuation model and analysed company financial statements in a synthetic finance project."},
+    {"key":"finance_risk","text":"Assessed borrower credit risk using leverage ratios, debt service coverage and downside scenarios in a synthetic lending case."},
+    {"key":"finance_accounting","text":"Reconciled income statements, balance sheets and cash flow statements for a synthetic accounting exercise."},
+    {"key":"team_four","text":"Coordinated the four-person synthetic Aurora student team and presented its findings."},
+    {"key":"team_two_conflict","text":"The synthetic Aurora student team had two members, not four; I coordinated its work and presented its findings."},
+    {"key":"python_snake_distractor","text":"Catalogued Python snakes in a synthetic wildlife inventory. Python, API, automated tests and software are inventory label names here, not evidence of programming or software engineering."}
+  ],
+  "queries": [
+    {"key":"tech_api_exact","query":"Python REST API automated regression tests","relevant":["tech_api","tech_api_duplicate"],"kind":"duplicate_evidence"},
+    {"key":"tech_sql","query":"SQL PostgreSQL joins and database schema design","relevant":["tech_sql"],"kind":"tech"},
+    {"key":"tech_ops","query":"Docker packaging and GitHub Actions continuous integration","relevant":["tech_ops"],"kind":"tech"},
+    {"key":"finance_dcf","query":"discounted cash flow valuation and financial analysis","relevant":["finance_dcf"],"kind":"finance"},
+    {"key":"finance_risk","query":"borrower credit risk leverage debt service downside scenario","relevant":["finance_risk"],"kind":"finance"},
+    {"key":"finance_accounting","query":"reconcile income statement balance sheet cash flow accounts","relevant":["finance_accounting"],"kind":"finance"},
+    {"key":"team_conflict","query":"How many people were on the Aurora student team?","relevant":["team_four","team_two_conflict"],"kind":"contradiction_quotes_not_truth"},
+    {"key":"team_presentation","query":"coordinating the Aurora team and presenting findings","relevant":["team_four","team_two_conflict"],"kind":"contradiction_quotes_not_truth"},
+    {"key":"software_not_snakes","query":"experience building software APIs and testing Python programs, not wildlife snakes","relevant":["tech_api","tech_api_duplicate"],"kind":"lexical_distractor"},
+    {"key":"finance_downside","query":"experience evaluating whether a borrower can repay a loan during a downturn","relevant":["finance_risk"],"kind":"finance_paraphrase"},
+    {"key":"unanswerable_clinical","query":"What surgical qualifications and clinical hospital experience does this person have?","relevant":[],"kind":"unanswerable"},
+    {"key":"unanswerable_visa","query":"Does this person hold a Japanese work visa or speak Japanese fluently?","relevant":[],"kind":"unanswerable"}
+  ]
+}

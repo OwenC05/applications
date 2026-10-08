@@ -1,8 +1,8 @@
 # Application Copilot
 
-A private, local-first internship application workspace for **technology and finance**. Built with Node.js and browser modules; **no third-party dependencies or npm install step**.
+A private, local-first internship application workspace for **technology and finance**. Includes the preserved dependency-free Node.js MVP and a separate Python/FastAPI evidence workbench.
 
-**Snapshot status:** this repository contains the existing Node.js MVP. The next iteration—Python/FastAPI, Chroma, dense + BM25 retrieval, reranking and local Docker deployment—is reviewed and planned, **not implemented yet**. See [the development plan](docs/plans/README.md).
+**Snapshot status:** Node onboarding/research/drafting and the separate Python evidence workbench are implemented. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. Integrating researched, grounded application drafting and later supervised browser filling/submission is **reviewed and planned, not implemented yet**. See [the current development plan](docs/plans/README.md).
 
 ## Start
 
@@ -54,11 +54,11 @@ npm run check
 
 Tests use synthetic profiles, injected provider responses and temporary local HTTP servers. `--test-isolation=none` ensures individual assertions run in this environment. Syntax checks cover source/frontend/test modules; no external linter or TypeScript compiler is installed. Current architecture contracts: [API.md](API.md), [DESIGN.md](DESIGN.md).
 
-## Explicit first-version limits
+## Existing Node MVP limits
 
 - **No browser autofill or automatic submissions yet.** Supported-platform browser filling is the next phase.
 - **GitHub listing import is not enabled yet.** A conservative normalizer exists, but the live upstream schema/licensing/provenance needs validation before connecting it. Manual job entry supports tech and finance now. Trackr is inspiration only; its [terms](https://the-trackr.com/terms-of-use/) restrict automated extraction and applications.
-- No hosted accounts, encrypted datastore, PDF CV parsing, fine-tuning or vector database. Existing CV/course files were not read or changed.
+- No hosted accounts, encrypted datastore or fine-tuning. The Node MVP has no PDF CV parsing or vector database; the separate Python workbench below adds deliberate document parsing and retrieval. Existing CV/course files were not read or changed.
 - Model output can still be wrong. Source/evidence ID checks help review but do not prove every sentence is factual. Questions or gaps require you, not guesses.
 
 ## Official implementation references
@@ -66,3 +66,68 @@ Tests use synthetic profiles, injected provider responses and temporary local HT
 [Responses web search](https://developers.openai.com/api/docs/guides/tools-web-search), [structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs), [documented model](https://developers.openai.com/api/docs/models/gpt-6-astra).
 
 The editorial rubric draws on public [Oxford application-form guidance](https://www.ox.ac.uk/careers/careers-guidance/job-search-and-applications/writing-applications/application-forms), [Microsoft hiring guidance](https://careers.microsoft.com/v2/global/en/hiring-tips) and [JPMorganChase's hiring guidance](https://www.jpmorganchase.com/careers/how-we-hire). Applying interview guidance to written answers is our design inference, not employer endorsement; the actual employer's published application instructions take precedence.
+
+## New: Python evidence milestone (separate workbench)
+
+The existing Node application above is preserved. This additive milestone is **not yet integrated with application drafting**. It provides local document import, explicit fact confirmation, hybrid retrieval and citation inspection on **port 3001**, with a separate SQLite data root. It makes no cloud calls or generated-answer/hiring-quality claims.
+
+### Docker setup
+
+Prerequisites: Docker Engine/Desktop with Compose, Linux containers and enough CPU/RAM for two local text models. The current development host has 7.6 GiB RAM; a small real-model smoke is not a capacity benchmark. Docker deployment is **not runtime-verified here** because Docker is unavailable.
+
+```sh
+docker compose build
+# Explicit model download (~180 MB of weights; additional pinned dependencies in image).
+# Runtime stays offline. This setup command alone enables HF network access.
+docker compose run --rm -e HF_HUB_OFFLINE=0 -e TRANSFORMERS_OFFLINE=0 app python -m copilot.models setup
+docker compose up -d --wait
+```
+
+Open `http://127.0.0.1:3001`. Create a profile, deliberately upload TXT/Markdown/text-based PDFs, inspect text, and explicitly confirm reusable facts. Copy the profile ID from the terminal commands shown in the workbench. Prepare each index after evidence changes:
+
+```sh
+docker compose exec app python -m copilot index --profile PROFILE_ID --corpus facts
+docker compose exec app python -m copilot index --profile PROFILE_ID --corpus documents
+# Resume an interrupted deletion; never delete volumes as a substitute for this operation.
+docker compose exec app python -m copilot cleanup
+```
+
+Only the workbench port is published, on loopback; Chroma has no host port. Named volumes retain evidence, models and Chroma. Health means the API is alive, **not** that models/indexes are prepared; queries validate index readiness and both retrieval branches. Index builds are explicit serialized CLI operations, not durable background jobs. Keep a single API worker, no development reload. Chroma unavailable during deletion leaves access revoked and a pending cleanup ticket, not a false success.
+
+### Python development / verification
+
+Python **3.12** and [uv](https://docs.astral.sh/uv/) are required. The lock uses Linux x86-64 CPU Torch, not CUDA; macOS/Windows-native Python are not verified targets. Windows users use Linux Docker/WSL. No command imports the existing `.data` or reads the legacy `.env`.
+
+```sh
+uv sync --project backend --locked
+uv run --project backend pytest backend/tests
+uv run --project backend ruff check backend eval
+uv run --directory backend python -m copilot.models setup
+# Supply a private Chroma server on localhost:8000 (Compose uses hostname chroma internally).
+uv run --directory backend python -m copilot serve
+```
+
+Optional explicit paths: `COPILOT_DATA_DIR` (default `evidence-data`), `COPILOT_MODEL_DIR` (default `<data>/models`), `COPILOT_CHROMA_HOST`, `COPILOT_CHROMA_PORT`, `COPILOT_PORT` (default 3001). Do not point the evidence data root at the existing Node `.data`. Models are pinned by immutable repository commits and their setup-time file hashes; normal loading is local-only and never trusts remote code.
+
+**Evidence boundaries:** raw document search requires selected source IDs; application fact search indexes only explicitly confirmed canonical wording. A corrected/manual fact cites its own confirmed version, not an old PDF as proof. Citations check ownership, active version, exact Unicode span, hash and excerpt. Integrity is distinct from truth or semantic support; relevance/rerank scores do not certify either. The tool returns quotations, not offline generated answers.
+
+**Deletion/privacy:** removing a fact retains its raw source; deleting a source revokes linked facts. Profile/source deletion is application-level logical removal plus owned blob/sparse-file removal and Chroma API absence, resumable through tickets. It does **not** promise forensic erasure from database freelists/WAL, service storage internals, host media/RAM, exports or external backups. Storage is plaintext; protect the OS/drive. Profiles are not authenticated friend accounts. Each friend should run an independent installation with their own data.
+
+**Limits:** English, TXT/MD/text-PDF only; 10 MiB upload, 100 PDF pages, one million extracted characters, bounded Linux parser subprocess, 1,000 chunks per profile/corpus. No OCR, encrypted PDFs, filesystem crawl, auto fact extraction, company fetcher, paid generation, support ledger, legacy migration, backup/restore or submission automation yet.
+
+Next slices and acceptance criteria: [evidence milestone](docs/plans/evidence-milestone.md), [tests](docs/plans/evidence-milestone-tests.md), and [current researched-application roadmap](docs/plans/README.md). Production release still needs live Docker/HTTP persistence/recovery, broader retrieval evaluation, supported-machine performance measurements and independent friend installation trials.
+
+**Dedicated database requirement:** Do not connect this milestone to a shared Chroma instance. Recovery reconciles `evidence_` collections against this installation's SQLite manifests; a second installation must use its own database/volumes. Installation-scoped namespaces are required before supporting shared Chroma services.
+
+Real offline integration (opt-in, synthetic fixtures only):
+
+```sh
+COPILOT_REAL_MODEL_DIR=/path/to/models uv run --project backend pytest backend/tests -m real_models
+# To additionally exercise an explicitly started loopback Chroma HTTP server:
+COPILOT_REAL_MODEL_DIR=/path/to/models COPILOT_HTTP_SMOKE_PORT=8000 uv run --project backend pytest backend/tests -m real_models
+PYTHONPATH=backend uv run --project backend python eval/run.py --models /path/to/models --output eval/latest-smoke.json
+```
+
+The evaluation is a small synthetic retrieval check, not semantic truth validation or hiring quality. Development currently emits an upstream Starlette/TestClient deprecation warning; tests still pass. Docker/resource-limit behavior and independent friend setup remain release checks.
+
+Implementation evidence: [verified milestone and remaining gates](docs/plans/evidence-verification.md).
