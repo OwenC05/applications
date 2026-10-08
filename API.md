@@ -1,5 +1,9 @@
 # API and module contract — Application Copilot
 
+The sections below describe the preserved Node MVP. The additive Python evidence
+API uses `/api/evidence`; its workbench is separate. The new Python workspace
+contract is documented at the end and is not yet a service capability.
+
 All JSON API requests except GET /api/status require X-Copilot-Token from status. Mutations require application/json. Bind 127.0.0.1; host/origin checks; no CORS; no provider keys in client responses. Envelope: success JSON data directly; failure {error,message?} with status 400/403/404/409/413/422/502/503 as applicable.
 
 ## Store module (src/store.mjs)
@@ -70,3 +74,67 @@ Optional POST /api/profiles/:id/import-listings {} -> {profile,imported,skipped,
 
 ## Frontend flows
 Sidebar: Overview / Opportunities / Interview / Brain / Applications / Settings. Profile selector always explicit; blank profiles by default, separate clearly labelled demo. Every mutation uses token; render untrusted text via textContent/escaping. State persists on server, selected profile may be localStorage identifier only. Manual role form accepts both sectors and multi-line real application questions, user-supplied company URL/JD; user confirms official company domain. Research panel shows timestamp, source links and inferred labels. Draft screen shows evidence/gaps/limit counters, edit/copy/export, review before explicit mark submitted. Brain pending inbox confirm/reject/conflict/edit/forget. Onboarding save+continue, skip, resume, adaptive followup opt-in; never force hour. Settings explains plaintext local storage/provider retention/consent/key config and full delete/export scope. No fake cloud success or auto-submit buttons.
+
+## Python workspace contract — S0 candidate (services not yet implemented)
+
+Authoritative schemas: `backend/copilot/domain/contracts.py`; strict version1,
+unknown fields rejected, UTC-aware times, code-point spans, canonical UTF-8 hashes.
+Separate metadata/facts/documents/consent/application-input/research/output revisions
+prevent display edits from retiring evidence indexes. Schema validation is not
+ownership, source eligibility, semantic truth or execution authorization.
+
+The Python workspace uses **`/api/workspace`**, distinct from preserved Node routes
+and `/api/evidence`. Responses use snake_case versioned models; S6 adapts the UI
+explicitly rather than silently serving Node's full-profile envelope. One Python
+SQLite authority and shared owner IDs; no second profile database or dual writes.
+Existing evidence routes remain compatible. Host/Origin, loopback and boot-session
+checks apply to all workspace routes. Mutations use the existing `X-Evidence-Token`
+and JSON content type (except explicitly bounded file imports); a profile selector
+is not authentication against another local OS user.
+
+Frozen route groups (future, not assertions that these endpoints exist):
+- `GET /status`: WorkspaceStatus; boot token, version, configured-key boolean and
+  qualified capabilities. Never return the key; default capabilities false.
+- `GET /profiles`: versioned ProfileList `{schema_version,profiles}` envelope.
+  `POST /profiles`: name and sectors;
+  returns ProfileDetail. `GET /profiles/{id}`: ProfileDetail with profile,
+  consent, interview progress/answers, proposals, typed values and applications.
+- `PATCH /profiles/{id}`: explicit metadata/writing-preference fields only;
+  `DELETE /profiles/{id}`: revoked access plus cleanup status. Cloud consent is
+  not accepted in a general metadata patch.
+- `POST /profiles/{id}/consent`: explicit provider/purposes/granted disclosure;
+  server creates confirmation time/revision. No consent inferred from API-key presence.
+- `GET /profiles/{id}/interview`: canonical sector-filtered question bank and
+  progress. `POST .../interview/answers`: question_id/answer; server supplies the
+  canonical question/section and creates a pending proposal. `PATCH .../interview`:
+  skipped_question_ids/completed. Unknown questions and coercible booleans rejected.
+- `POST /profiles/{id}/proposals`: pending proposed wording/provenance;
+  `POST .../proposals/{proposal_id}/review`: explicit confirm/reject plus expected
+  facts revision. Corrections create immutable versions and supersede explicitly.
+  `DELETE .../proposals/{proposal_id}`: conservatively remove derived content.
+- `POST /profiles/{id}/applications`: ApplicationRecord input fields, server IDs,
+  revision/time. `PATCH .../applications/{application_id}`: validated input edits
+  with expected input revision. Stale concurrent writes return409.
+- Later S2–S11 add job/research/draft/review/form/grant/submission routes against
+  frozen models; their exact HTTP shapes are committed before each consuming UI
+  slice. A model/grant supplied by a client never establishes stored permission.
+
+Errors reuse the evidence envelope `{error:{code,message}}` with safe messages;
+never include request content, provider secrets or tracebacks. Stored owner lookup,
+current revisions and transactional guards precede every write and transmission.
+JSON input is validated as JSON, not by coercing Python tuples/datetimes manually.
+
+Profile views carry profile-owned metadata/facts/documents/consent revisions;
+application-input/research/output counters belong to one application. A job's
+captured vector composes those scopes server-side. Draft edits, review events and
+submission/history changes increment output: publication compares it in the same
+transaction as the worker fence, so a valid worker cannot overwrite newer user
+work. Typed-value changes increment metadata and invalidate affected form maps
+and grants; they never enter story indexes. Feedback proposals require explicit
+manual confirmation for factual reuse and retain their original proposal origin.
+
+Browser SemanticPayload.destination means an actual exact request endpoint, not
+host-only permission. Initial completed multi-step payloads require one endpoint;
+multi-endpoint forms/uploads remain manual until separately scoped contracts and
+adapter qualification support them. S2 reconciles existing nested sparse paths
+through canonical manifests, without inventing legacy worker leases/fences.

@@ -46,3 +46,18 @@ Dependency-free Node24 + vanilla HTML/CSS/browser ES module. Local API contract:
 - [ ] Later browser autofill platform coverage; owner product; out of current milestone.
 - [ ] Later authenticated hosted product; owner product; no impact on local-first implementation.
 - [ ] Real user's provider credentials/model access; owner user at local setup; no effect on offline/test implementation, live verification remains conditional.
+
+## Python workspace integration — S0 contract boundary
+
+The Node MVP and additive evidence workbench remain separate working experiences.
+The reviewed next product has one Python/SQLite authority and `/api/workspace`
+snake_case envelopes; it does not silently merge profile IDs or auto-import legacy
+private data. Preserve Node until explicit migration and parity tests pass.
+
+S0 adds strict domain contracts and acceptance tests only. It does not add paid
+research, generated answers, semantic certification or browser actions. Future S6
+reuses this visual system while combining onboarding, evidence, applications,
+research and exact review; unsupported/unfinished capabilities remain clearly
+labelled, not decorated as successful automation. Profile selection remains a
+local convenience, not hosted account security. See the reviewed plans in
+`docs/plans/` for release gates and separate fill versus final-submit approvals.
