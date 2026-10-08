@@ -15,6 +15,15 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   regressions were repaired. No old cloud consent, review badge or source text is
   silently promoted. The preserved evidence page remains the default; these data
   APIs are not an integrated research/drafting or submission capability.
+- **S2 Part A only:** durable SQLite job primitives use server-captured revisions,
+  leases/fences, immutable stages and atomic final publication. Provider primitives
+  enforce explicit stored purpose consent, token/call reservations, transmission-day
+  limits and a fixed, certificate-verified Responses transport with one absolute
+  network deadline. Ambiguous attempts retain reservations and are not replayed.
+  Synthetic clock/socket/crash tests and independent code/architecture reviews
+  qualify these primitives only. No paid request was made; payload minimization,
+  actual provider compatibility, immutable generation recovery and the worker/API
+  integration remain pending. **This does not complete S2 or enable drafting.**
 - **S3 preparation only:** anonymous static HTTPS acquisition with exact-host
   policy, validated pinned IP connections, bounded original bytes, verified TLS,
   canonical extraction and provenance hashes. HTML/PDF parsing runs in bounded
