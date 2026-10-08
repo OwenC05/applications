@@ -22,8 +22,18 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   network deadline. Ambiguous attempts retain reservations and are not replayed.
   Synthetic clock/socket/crash tests and independent code/architecture reviews
   qualify these primitives only. No paid request was made; payload minimization,
-  actual provider compatibility, immutable generation recovery and the worker/API
-  integration remain pending. **This does not complete S2 or enable drafting.**
+  actual provider compatibility and the worker/API integration remain pending.
+  **This does not complete S2 or enable drafting.**
+- **S2 Part B only:** immutable source capture and generation-specific chunks
+  keep tokenization/building outside SQLite transactions. Registered staging,
+  current job authority and atomic publication protect eligible older indexes
+  from failed, cancelled or late producers. Cleanup validates anchored paths and
+  journals dense writes before dispatch. Local producer exit or an absent Chroma
+  collection is not proof of remote quiescence: an unacknowledged write remains
+  cleanup-pending without replay, potentially indefinitely. Independent reviews
+  and synthetic crash/deferred-receiver regressions cover this component. Broad
+  API/CLI lock removal, the heartbeat worker and upload-recovery integration are
+  still pending; **Part B does not complete S2**.
 - **S3 preparation only:** anonymous static HTTPS acquisition with exact-host
   policy, validated pinned IP connections, bounded original bytes, verified TLS,
   canonical extraction and provenance hashes. HTML/PDF parsing runs in bounded

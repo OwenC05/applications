@@ -12,7 +12,7 @@ from copilot.store import Store
 
 class FixtureModels:
     """Deterministic test double; not evidence of model quality."""
-    fingerprint = "synthetic-fixture"
+    fingerprint = __import__("hashlib").sha256(b"synthetic-fixture").hexdigest()
 
     def tokenize_offsets(self, text):
         return [m.span() for m in re.finditer(r"\S+", text)]
@@ -85,9 +85,9 @@ def test_empty_and_orphan_recovery(setup):
     service.build(profile.id, "facts")
     assert service.search(profile.id, "facts", "anything") == []
     orphan = service.index_root / profile.id / "orphan"
-    orphan.mkdir()
+    orphan.mkdir(parents=True)
     service.recover()
-    assert not orphan.exists()
+    assert orphan.exists()  # Unknown artifacts are preserved without deletion authority.
 
 
 def test_query_limit_and_foreign_selection(setup):
@@ -139,7 +139,7 @@ def test_publish_failure_discards_staging(setup, monkeypatch):
     with pytest.raises(EvidenceError, match="revision"):
         service.build(profile.id, "facts")
     assert not dense.owned_names(profile.id)
-    assert not list((service.index_root / profile.id).iterdir())
+    assert not list(service.index_root.iterdir())
 
 
 def test_canonical_unicode_slices_and_chunk_token_cap(setup):
@@ -267,13 +267,13 @@ def test_failed_build_attempts_both_cleanups_and_recovers(setup, monkeypatch, de
     assert attempts == ["dense", "sparse"]
     assert store.active_manifest(profile.id, "facts") is None
     assert bool(dense.owned_names(profile.id)) == dense_failure
-    assert bool(list((service.index_root / profile.id).iterdir())) == sparse_failure
+    assert bool(list(service.index_root.iterdir())) == sparse_failure
     monkeypatch.setattr(dense, "delete", original_dense_delete)
     monkeypatch.setattr(shutil, "rmtree", original_rmtree)
     monkeypatch.setattr(store, "publish_manifest", original_publish)
     service.recover()
     assert not dense.owned_names(profile.id)
-    assert not list((service.index_root / profile.id).iterdir())
+    assert not list(service.index_root.iterdir())
 
 
 def test_old_cleanup_ticket_preserves_unrelated_and_newer_generations(setup):

@@ -66,6 +66,14 @@ class Store:
                 CREATE INDEX IF NOT EXISTS record_owner ON records(owner,kind);
                 CREATE TABLE IF NOT EXISTS manifests(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
                     corpus TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS generation_intents(id TEXT PRIMARY KEY,
+                    owner TEXT NOT NULL, corpus TEXT NOT NULL, state TEXT NOT NULL,
+                    data TEXT NOT NULL, captured TEXT);
+                CREATE TABLE IF NOT EXISTS dense_mutations(generation_id TEXT PRIMARY KEY,
+                    fence INTEGER NOT NULL, state TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS generation_chunks(generation_id TEXT NOT NULL,
+                    id TEXT NOT NULL, owner TEXT NOT NULL, data TEXT NOT NULL,
+                    PRIMARY KEY(generation_id,id));
                 CREATE TABLE IF NOT EXISTS tickets(id TEXT PRIMARY KEY, data TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS tombstones(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
                     kind TEXT NOT NULL);
@@ -76,6 +84,13 @@ class Store:
                 revision = json.loads(serialized)['revision']
                 db.execute('INSERT OR IGNORE INTO profile_revisions(owner,facts,documents) VALUES(?,?,?)',
                            (owner, revision, revision))
+        # Legacy published manifests prove a completed dual-index publication, not a
+        # fabricated producer lease. Unjournaled staging cannot prove no dispatch.
+        with self._tx() as db:
+            db.execute("""INSERT OR IGNORE INTO dense_mutations
+                SELECT g.id,json_extract(g.data,'$.fence'),
+                CASE WHEN EXISTS(SELECT 1 FROM manifests m WHERE m.id=g.id)
+                THEN 'acknowledged' ELSE 'indeterminate' END FROM generation_intents g""")
         self.reconcile_blobs()
 
     def _reconcile_blobs(self, db):
@@ -267,32 +282,44 @@ class Store:
                    (owner, p.revision, p.revision))
         return db.execute(f'SELECT {corpus} FROM profile_revisions WHERE owner=?', (owner,)).fetchone()[0]
 
-    def snapshot(self, profile_id, corpus, chunker):
+    def capture_sources(self, db, profile_id, corpus):
+        """Immutable canonical input capture; callers own a short transaction."""
         corpus_name(corpus)
+        self._profile(db, profile_id)
+        kind = 'fact' if corpus == 'facts' else 'unit'
+        values = []
+        for row in db.execute('SELECT data FROM records WHERE owner=? AND kind=? ORDER BY id', (profile_id, kind)):
+            value = json.loads(row[0])
+            if value.get('state', 'active') == 'active':
+                values.append(value)
+        return self._corpus_revision(db, profile_id, corpus), values
+
+    def chunk_capture(self, profile_id, corpus, revision, values, chunker):
+        """Pure validation/tokenization: no SQLite transaction or canonical writes."""
+        chunks = []
+        for serialized in values:
+            value = dict(serialized)
+            if corpus == 'facts' and value['origin']:
+                value['origin'] = Span(**value['origin'])
+            obj = Fact(**value) if corpus == 'facts' else Unit(**value)
+            for c in chunker(obj):
+                self._span(obj.text, c.start, c.end)
+                if (c.profile_id != profile_id or c.corpus != corpus
+                        or c.record_id != (obj.id if corpus == 'facts' else obj.source_id)
+                        or c.unit_id != (None if corpus == 'facts' else obj.id)
+                        or c.text != obj.text[c.start:c.end] or c.text_sha256 != digest(c.text)):
+                    fail('INVALID_INPUT', 'Chunk does not match canonical text', 400)
+                chunks.append(c)
+                if len(chunks) > 1000:
+                    fail('LIMIT_EXCEEDED', 'Snapshot limit is 1000 chunks', 413)
+        if len({c.id for c in chunks}) != len(chunks):
+            fail('INVALID_INPUT', 'Duplicate chunk IDs', 400)
+        return Snapshot(profile_id, corpus, revision, tuple(sorted(chunks, key=lambda c: c.id)))
+
+    def snapshot(self, profile_id, corpus, chunker):
         with self._tx() as db:
-            self._profile(db, profile_id)
-            values = []
-            kind = 'fact' if corpus == 'facts' else 'unit'
-            for row in db.execute('SELECT data FROM records WHERE owner=? AND kind=? ORDER BY id', (profile_id, kind)):
-                value = json.loads(row[0])
-                if value.get('state', 'active') != 'active':
-                    continue
-                if kind == 'fact' and value['origin']:
-                    value['origin'] = Span(**value['origin'])
-                obj = Fact(**value) if kind == 'fact' else Unit(**value)
-                for c in chunker(obj):
-                    self._span(obj.text, c.start, c.end)
-                    if (c.profile_id != profile_id or c.corpus != corpus or c.record_id != (obj.id if kind == 'fact' else obj.source_id) or c.unit_id != (None if kind == 'fact' else obj.id) or c.text != obj.text[c.start:c.end] or c.text_sha256 != digest(c.text)):
-                        fail('INVALID_INPUT', 'Chunk does not match canonical text', 400)
-                    values.append(c)
-                    if len(values) > 1000:
-                        fail('LIMIT_EXCEEDED', 'Snapshot limit is 1000 chunks', 413)
-            if len({c.id for c in values}) != len(values):
-                fail('INVALID_INPUT', 'Duplicate chunk IDs', 400)
-            db.execute("DELETE FROM records WHERE owner=? AND kind=?", (profile_id, 'chunk:' + corpus))
-            for c in values:
-                self._put(db, profile_id, 'chunk:' + corpus, c)
-            return Snapshot(profile_id, corpus, self._corpus_revision(db, profile_id, corpus), tuple(sorted(values, key=lambda c: c.id)))
+            revision, values = self.capture_sources(db, profile_id, corpus)
+        return self.chunk_capture(profile_id, corpus, revision, values, chunker)
 
     def validate_snapshot(self, profile_id, revision, corpus=None):
         with self._tx() as db:
@@ -300,19 +327,44 @@ class Store:
             if current != revision:
                 fail('CONFLICT', 'Evidence changed; rebuild required', 409)
 
-    def publish_manifest(self, manifest, expected_revision):
+    def publish_manifest(self, manifest, expected_revision, *, transaction=None, jobs=None, worker_id=None, fence=None):
+        """Internal terminal-job callback only; never an unfenced publication API."""
+        if transaction is None or jobs is None:
+            fail('CONFLICT', 'Index publication requires a fenced job transaction', 409)
+        db = transaction
         corpus_name(manifest.corpus)
         identifier(manifest.generation_id)
-        with self._tx() as db:
-            p = self._profile(db, manifest.profile_id)
-            ids = sorted(r[0] for r in db.execute('SELECT id FROM records WHERE owner=? AND kind=?', (p.id, 'chunk:' + manifest.corpus)))
-            # Retrieval contract uses newline-joined sorted IDs.
-            if self._corpus_revision(db, p.id, manifest.corpus) != expected_revision or manifest.revision != expected_revision:
-                fail('CONFLICT', 'Evidence changed; rebuild required', 409)
-            if manifest.chunk_count != len(ids) or manifest.chunk_ids_sha256 != digest('\n'.join(ids)):
-                fail('CONFLICT', 'Index chunk set mismatch', 409)
-            db.execute("UPDATE manifests SET state='retired' WHERE owner=? AND corpus=?", (p.id, manifest.corpus))
-            db.execute('INSERT INTO manifests VALUES(?,?,?,?,?)', (manifest.generation_id, p.id, manifest.corpus, 'active', json.dumps(asdict(manifest))))
+        p = self._profile(db, manifest.profile_id)
+        intent = db.execute('SELECT owner,state,data FROM generation_intents WHERE id=?',
+                            (manifest.generation_id,)).fetchone()
+        if not intent or intent[0] != p.id or intent[1] != 'ready':
+            fail('CONFLICT', 'Generation is not ready for publication', 409)
+        captured = json.loads(intent[2])
+        job, parameters = jobs.assert_current(db, captured['job_id'], worker_id, fence)
+        if (captured['fence'] != fence or job.kind != 'index'
+                or job.profile_id != p.id or parameters['corpus'] != manifest.corpus
+                or captured['corpus'] != manifest.corpus
+                or captured['model_fingerprint'] != manifest.model_fingerprint
+                or captured['chunker_version'] != manifest.chunker_version
+                or captured['dense_collection'] != manifest.dense_collection
+                or captured['sparse_relpath'] != manifest.sparse_relpath):
+            fail('CONFLICT', 'Generation publication authority mismatch', 409)
+        rows = db.execute('SELECT id,data FROM generation_chunks WHERE generation_id=? ORDER BY id',
+                          (manifest.generation_id,)).fetchall()
+        ids = [r[0] for r in rows]
+        mutation = db.execute('SELECT fence,state FROM dense_mutations WHERE generation_id=?', (manifest.generation_id,)).fetchone()
+        required_state = 'acknowledged' if ids else 'not_attempted'
+        if mutation != (fence, required_state):
+            fail('CONFLICT', 'Dense generation completion has not been acknowledged', 409)
+        if self._corpus_revision(db, p.id, manifest.corpus) != expected_revision or manifest.revision != expected_revision:
+            fail('CONFLICT', 'Evidence changed; rebuild required', 409)
+        if manifest.chunk_count != len(ids) or manifest.chunk_ids_sha256 != digest('\n'.join(ids)):
+            fail('CONFLICT', 'Index chunk set mismatch', 409)
+        db.execute("DELETE FROM records WHERE owner=? AND kind=?", (p.id, 'chunk:' + manifest.corpus))
+        for _, data in rows:
+            self._put(db, p.id, 'chunk:' + manifest.corpus, Chunk(**json.loads(data)))
+        db.execute("UPDATE manifests SET state='retired' WHERE owner=? AND corpus=?", (p.id, manifest.corpus))
+        db.execute('INSERT INTO manifests VALUES(?,?,?,?,?)', (manifest.generation_id, p.id, manifest.corpus, 'active', json.dumps(asdict(manifest))))
 
     def active_manifest(self, profile_id, corpus):
         corpus_name(corpus)
@@ -324,7 +376,7 @@ class Store:
             value = Manifest(**json.loads(row[0]))
             return value if value.revision == self._corpus_revision(db, p.id, corpus) else None
 
-    def eligible_chunks(self, profile_id, corpus, chunk_ids, source_ids=None):
+    def eligible_chunks(self, profile_id, corpus, chunk_ids, source_ids=None, generation_id=None):
         corpus_name(corpus)
         with self._tx() as db:
             self._profile(db, profile_id)
@@ -335,7 +387,14 @@ class Store:
                     self._record(db, profile_id, sid, 'source')
             result = []
             for cid in chunk_ids:
-                row = db.execute('SELECT data FROM records WHERE id=? AND owner=? AND kind=?', (cid, profile_id, 'chunk:' + corpus)).fetchone()
+                if generation_id is not None:
+                    row = db.execute('SELECT c.data FROM generation_chunks c JOIN generation_intents g ON g.id=c.generation_id WHERE c.id=? AND c.owner=? AND g.id=? AND g.corpus=? AND g.state=?',
+                                     (cid, profile_id, generation_id, corpus, 'published')).fetchone()
+                    if not db.execute('SELECT 1 FROM generation_intents WHERE id=?', (generation_id,)).fetchone():
+                        # Honest legacy read path: no invented lease or job metadata.
+                        row = db.execute('SELECT data FROM records WHERE id=? AND owner=? AND kind=?', (cid, profile_id, 'chunk:' + corpus)).fetchone()
+                else:
+                    row = db.execute('SELECT data FROM records WHERE id=? AND owner=? AND kind=?', (cid, profile_id, 'chunk:' + corpus)).fetchone()
                 if not row:
                     continue
                 c = Chunk(**json.loads(row[0]))
@@ -491,6 +550,25 @@ class Store:
             if facts:
                 affected.add('facts')
             generations = [r[0] for r in db.execute('SELECT id,corpus FROM manifests WHERE owner=?', (owner,)) if r[1] in affected]
+            for gid, corpus, serialized in db.execute('SELECT id,corpus,data FROM generation_intents WHERE owner=?', (owner,)).fetchall():
+                if corpus not in affected:
+                    continue
+                if gid not in generations:
+                    generations.append(gid)
+                intent = json.loads(serialized)
+                intent['state'] = 'cleanup_pending'
+                db.execute('UPDATE generation_intents SET state=?,data=?,captured=NULL WHERE id=?',
+                           ('cleanup_pending', json.dumps(intent), gid))
+                db.execute('DELETE FROM generation_chunks WHERE generation_id=?', (gid,))
+                # Index cancellation is atomic with source/fact/profile forgetting.
+                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'").fetchone():
+                    job_row = db.execute('SELECT data FROM jobs WHERE id=?', (intent['job_id'],)).fetchone()
+                    if job_row:
+                        job = json.loads(job_row[0])
+                        if job['state'] in ('queued', 'running'):
+                            job.update(state='cancelled', cancellation_requested=True, stage='scope_forgotten')
+                            db.execute('UPDATE jobs SET state=?,data=? WHERE id=?', ('cancelled', json.dumps(job), intent['job_id']))
+
             for rid, kind, obj in rows:
                 if profile or rid in sources or rid in facts or rid in units or kind in {'chunk:' + corpus for corpus in affected}:
                     db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)', (rid, owner, kind))
@@ -582,6 +660,12 @@ class Store:
             except (OSError, EvidenceError):
                 fail('CLEANUP_PENDING', 'Owned data cleanup remains pending', 503)
             for gid in ticket.generation_ids:
+                intent = db.execute('SELECT state FROM generation_intents WHERE id=? AND owner=?', (gid, ticket.profile_id)).fetchone()
+                if intent and intent[0] != 'cleaned':
+                    fail('CLEANUP_PENDING', 'Generation cleanup remains pending', 503)
+                mutation = db.execute('SELECT state FROM dense_mutations WHERE generation_id=?', (gid,)).fetchone()
+                if mutation and mutation[0] in ('inflight', 'indeterminate'):
+                    fail('CLEANUP_PENDING', 'External dense write completion remains unknown', 503)
                 db.execute('DELETE FROM manifests WHERE id=? AND owner=?', (gid, ticket.profile_id))
             done = CleanupTicket(ticket.id, ticket.profile_id, ticket.generation_ids, ticket.source_ids, ticket.fact_ids, 'complete')
             db.execute('UPDATE tickets SET data=? WHERE id=?', (json.dumps(asdict(done)), ticket.id))

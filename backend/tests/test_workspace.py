@@ -205,16 +205,18 @@ def test_invalid_token_and_nonjson_strict_http(client):
 
 
 def test_corpus_manifests_survive_unrelated_metadata_and_corpus_mutations(tmp_path):
-    from copilot.contracts import Manifest
-    from copilot.store import digest
+    import chromadb
+    from test_retrieval import FixtureModels
+
+    from copilot.retrieval.dense import DenseIndex
+    from copilot.retrieval.service import EvidenceService
     store = Store(tmp_path)
     owner = store.create_profile('Name', ['tech']).id
     store.confirm_fact(owner, 'Synthetic fact')
     fact_snapshot = store.snapshot(owner, 'facts', chunks)
-    manifest = Manifest(str(uuid4()), owner, 'facts', fact_snapshot.revision, 'model', 'chunker',
-                        digest('\n'.join(sorted(c.id for c in fact_snapshot.chunks))),
-                        len(fact_snapshot.chunks), 'collection', 'path')
-    store.publish_manifest(manifest, fact_snapshot.revision)
+    service = EvidenceService(store, tmp_path / 'indexes',
+        DenseIndex(chromadb.PersistentClient(path=str(tmp_path / 'chroma'))), FixtureModels())
+    manifest = service.build(owner, 'facts')
     repository = DomainRepository(store)
     repository.patch_profile(owner, c.ProfilePatch(expected_metadata_revision=0, name='Renamed'))
     assert store.active_manifest(owner, 'facts') == manifest

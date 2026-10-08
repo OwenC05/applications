@@ -2,7 +2,7 @@ from dataclasses import replace
 
 import pytest
 
-from copilot.contracts import Chunk, EvidenceError, Manifest, Span
+from copilot.contracts import Chunk, EvidenceError, Span
 from copilot.store import Store, digest
 
 
@@ -33,15 +33,20 @@ def test_fact_correction_and_manifest_cas(store):
     assert store.resolve_citation(p.id, citation)['excerpt'] == 'Led 40 people'
     with pytest.raises(EvidenceError):
         store.validate_snapshot(p.id, old.revision)
-    import uuid
-    m = Manifest(str(uuid.uuid4()), p.id, 'facts', snap.revision, 'model', 'v1',
-                 digest('\n'.join(c.id for c in snap.chunks)), 1, 'dense', 'sparse')
-    store.publish_manifest(m, snap.revision)
+    import chromadb
+    from test_retrieval import FixtureModels
+
+    from copilot.retrieval.dense import DenseIndex
+    from copilot.retrieval.service import EvidenceService
+    service = EvidenceService(store, store.root / 'indexes',
+        DenseIndex(chromadb.PersistentClient(path=str(store.root / 'chroma'))), FixtureModels())
+    m = service.build(p.id, 'facts')
     assert store.active_manifest(p.id, 'facts') == m
     store.confirm_fact(p.id, 'Finance experience')
     assert store.active_manifest(p.id, 'facts') is None
     with pytest.raises(EvidenceError):
-        store.publish_manifest(replace(m, generation_id=str(uuid.uuid4())), snap.revision)
+        store.publish_manifest(m, snap.revision)
+
 
 
 def test_deletion_persisted_and_raw_fact_distinction(store):
