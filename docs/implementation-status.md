@@ -15,13 +15,23 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   One actual public static HTTPS download also passed without personal data or
   paid calls. This is **not** a research broker, company/exact-role completeness
   assessment or renderer, and does **not** complete S3.
+- **S4 preparation only:** a bounded query compiler keeps the full question and
+  its negation in every variant, discloses omitted criteria, and asks for an
+  explicit split rather than truncating oversized questions. Twenty-two tests
+  pass; the actual pinned tokenizer validated 180 variants across 60 synthetic
+  cases. The 60-case input freeze passed an independent integrity audit and 11
+  fixture/metric tests. Neither query compilation nor fixture labels establish
+  retrieval relevance or semantic support. Held-out template duplication and
+  support-first ordering are disclosed; no evaluation metadata belongs in model
+  context. Runtime packets, measured ranking/abstention repair and human quality
+  gates remain pending, so **S4 is not complete**.
 
 ## Qualification boundaries
 
 The port-443 hostile-receiver test could not bind its privileged port on this
 host and remains skipped. An unprivileged rejected-URL receiver test observed
 zero connections; that and one successful public fetch do not establish the
-entire deployed DNS/TLS containment matrix. Process resource limits are not an
+  entire deployed DNS/TLS containment matrix. Process resource limits are not an
 OS security sandbox, nor a hard real-time scheduling guarantee.
 
 Cloud quality evaluation needs separately configured credentials, explicit

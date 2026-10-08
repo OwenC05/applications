@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "dataset": "applications-frozen.jsonl",
+  "sha256": "9a1e8944d876625213a05d4bb5557c35c8f02a012773e227d45ea446bfee23a6",
+  "counts": {
+    "cases": 60,
+    "sectors": {
+      "tech": 30,
+      "finance": 30
+    },
+    "splits": {
+      "tune": 30,
+      "heldout": 30
+    },
+    "unanswerable": 24,
+    "adversarial": 12,
+    "heldout_unanswerable": 12,
+    "heldout_adversarial": 6,
+    "categories": {
+      "contradiction": 4,
+      "direct_evidence": 32,
+      "negation_distractor": 4,
+      "pending_fact": 4,
+      "unanswerable": 16
+    }
+  },
+  "language": "en",
+  "provenance": "Entirely synthetic authored cases; no applicant or real employer records.",
+  "freeze": {
+    "status": "lead_approved",
+    "prepared_before_tuning": true,
+    "split_assignment": "Fixed per-sector 15 tune / 15 heldout, including 8 direct, 4 missing, 3 adversarial per split.",
+    "policy": "After lead approval, never change this version to improve scores. Changes require a new version with a documented reason and fresh holdout.",
+    "approved_at": "2026-10-08T15:16:36.434497+00:00",
+    "approval_basis": "Independent synthetic integrity audit: exact hash, labels, isolation and 11 passing tests; no runtime or human quality claim."
+  },
+  "regression": {
+    "source": "cases.json",
+    "source_schema": 2,
+    "query_key": "software_not_snakes",
+    "copied_query_and_all_fact_records_unchanged": true
+  },
+  "quality_gates": {
+    "retrieval_run": "not_run",
+    "semantic_abstention_run": "not_run",
+    "human_support_audit": "required_not_run",
+    "paired_editorial_review": "required_not_run",
+    "hiring_quality": "not_established"
+  },
+  "leakage_warning": "19/30 heldout questions exactly match tune questions; every answerable case puts support first. Related templates and label-bearing keys cannot establish generalisation. Model inputs must exclude gold, category, answerability, split and source keys; actual pipeline evaluation must randomise presentation deterministically without changing frozen bytes."
+}
