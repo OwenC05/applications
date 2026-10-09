@@ -52,13 +52,26 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   a latency/capacity benchmark or Docker qualification. A private Compose worker
   is configured and statically tested; Docker is unavailable on this host.
   Research/drafting handlers and the full downstream release gates remain pending.
-- **S3 preparation only:** anonymous static HTTPS acquisition with exact-host
+- **S3 standalone components:** anonymous static HTTPS acquisition with exact-host
   policy, validated pinned IP connections, bounded original bytes, verified TLS,
   canonical extraction and provenance hashes. HTML/PDF parsing runs in bounded
   processes. The hostile 1.4 MiB HTML regression and timeout kill/reap tests pass.
-  One actual public static HTTPS download also passed without personal data or
-  paid calls. This is **not** a research broker, company/exact-role completeness
-  assessment or renderer, and does **not** complete S3.
+  Actual public static HTTPS downloads passed without personal data or paid calls.
+  A bounded broker additionally acquires explicitly selected company, vacancy and
+  optional supporting URLs, retaining original bytes, canonical hashes and exact
+  identity spans. Its deliberately narrow identity adapter accepts only unique,
+  exact labelled lines; unsupported/general ATS layouts remain incomplete.
+  Company and exact-role coverage are separate. Login/JavaScript/CAPTCHA/paywall
+  signals and contradictory availability block completeness; closed roles and
+  seven-day freshness are explicit. Required caller authority checks prevent
+  accepting cancelled/stale results, but are not a substitute for a later stored
+  fenced publication.
+  Runs allow at most six sources, ten requests and 120 seconds, with an 8 MiB
+  conservative HTTP-body read allowance. Failed/partial reads retain their charge;
+  this is not a measurement or cap of TLS/header/framing/socket-buffer traffic.
+  Fresh scoped verification passed **170 tests with one privileged-port skip**.
+  No discovery/search agent, renderer, research API/worker handler or source
+  persistence is connected; **S3 remains incomplete**.
 - **S4 preparation only:** a bounded query compiler keeps the full question and
   its negation in every variant, discloses omitted criteria, and asks for an
   explicit split rather than truncating oversized questions. Twenty-two tests

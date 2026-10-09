@@ -262,3 +262,30 @@ producer-lock release nor current Chroma absence can clear their tickets without
 the recorded completed write envelope. Cleanup is exact-generation and anchored-
 path scoped; unknown artifacts are preserved. Worker/upload integration does not
 turn logical deletion into a qualified forensic deletion guarantee.
+
+### Standalone static research broker — no HTTP route yet
+
+`copilot.research.broker.research` accepts validated, server-captured non-personal
+`ResearchInput` fields and a mandatory current-authority callback. It anonymously
+acquires only explicit company/vacancy/supporting URLs on exact confirmed hosts.
+Original bytes, canonical text/hashes and Unicode identity spans are returned as
+capsules; they are not automatically stored, indexed or treated as instructions.
+Private facts, typed values, cookies and user-pasted JD are not input channels.
+
+The initial adapter requires unique exact `Company:`, `Employer:`, `Role:`,
+optional `Vacancy ID:` and `Applications: open|closed` lines. Coverage is not
+semantic entailment of employer claims. Redirected or unsupported identity,
+access restrictions and conflicting role availability remain incomplete. The
+oldest acquired source determines a maximum seven-day freshness window.
+
+Six selected sources, ten requests, 120 seconds and an 8 MiB cumulative bounded
+body-read allowance constrain a run. Read allowance is reserved before I/O and
+refunded only for successfully returned unused bytes, so failed/partial reads
+cannot bypass it. This conservative charge excludes TLS, headers, framing and
+socket-buffer traffic; it is not a whole-network byte measurement.
+
+Authority is checked before/after acquisitions and before return. In-flight
+anonymous GETs cannot be recalled; accepting/publishing results still requires
+the caller's stored current job/fence/revision checks. No research job handler,
+research HTTP endpoint, discovery agent, renderer or persistence integration is
+enabled by this component.

@@ -1,6 +1,7 @@
 """Synthetic static acquisition tests; no external sites or credentials."""
 import gzip
 import hashlib
+import http.client
 import io
 import json
 import socket
@@ -52,6 +53,142 @@ def transport(monkeypatch):
 
     monkeypatch.setattr(fetch, '_PinnedHTTPS', Connection)
     return calls, replies
+
+
+def test_failed_extractions_consume_shared_response_body_budget(transport):
+    calls, replies = transport
+    budget = fetch.FetchBudget(max_bytes=2 * fetch.MAX_BYTES)
+    for _ in range(2):
+        replies.append(Response(b'x' * fetch.MAX_BYTES,
+                                headers={'Content-Type': 'application/unsupported',
+                                         'Content-Length': str(fetch.MAX_BYTES)}))
+        with pytest.raises(fetch.FetchError):
+            fetch.acquire('https://example.com/role', ['example.com'], budget)
+    assert budget.bytes_read == 2 * fetch.MAX_BYTES
+    with pytest.raises(fetch.FetchError, match='byte budget'):
+        fetch.acquire('https://example.com/role', ['example.com'], budget)
+    assert len(calls) == 2
+
+
+def test_partial_stream_stops_at_remaining_aggregate_budget(transport):
+    calls, replies = transport
+    class ObservedResponse(Response):
+        consumed = 0
+        def read(self, size):
+            chunk = super().read(size)
+            self.consumed += len(chunk)
+            return chunk
+    response = ObservedResponse(b'x' * 2048)
+    replies.append(response)
+    budget = fetch.FetchBudget(max_bytes=1024)
+    with pytest.raises(fetch.FetchError, match='byte budget'):
+        fetch.acquire('https://example.com/role', ['example.com'], budget)
+    assert budget.bytes_read == response.consumed == 1024
+    assert len(calls) == 1 and calls[0]['closed']
+
+
+@pytest.mark.parametrize('headers,body', [
+    ({'Content-Encoding': 'gzip'}, b'invalid gzip'),
+    ({'Content-Length': '50'}, b'truncated'),
+    ({}, b'x' * (fetch.MAX_BYTES + 1)),
+], ids=['invalid-gzip', 'truncated', 'oversized'])
+def test_failed_decoding_truncation_and_oversize_keep_consumed_byte_charge(transport, headers, body):
+    _, replies = transport
+    replies.append(Response(body, headers=headers))
+    budget = fetch.FetchBudget()
+    with pytest.raises(fetch.FetchError):
+        fetch.acquire('https://example.com/role', ['example.com'], budget)
+    assert 0 < budget.bytes_read <= len(body)
+
+
+@pytest.mark.parametrize('chunks,consumed', [
+    (b'10\r\n12345678', 8),
+    (b'8\r\n12345678\r\n10\r\nabcdefgh', 16),
+], ids=['first-truncated-chunk', 'nested-partial-omitted-by-stdlib'])
+def test_real_http_response_failed_chunk_reads_remain_charged(transport, chunks, consumed):
+    calls, replies = transport
+    class Socket:
+        def makefile(self, *_args):
+            return io.BytesIO(b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n'
+                              b'Content-Type: text/plain\r\n\r\n' + chunks)
+    response = http.client.HTTPResponse(Socket())
+    response.begin()
+    replies.append(response)
+    budget = fetch.FetchBudget(max_bytes=64)
+    with pytest.raises(fetch.FetchError):
+        fetch.acquire('https://example.com/role', ['example.com'], budget)
+    assert consumed <= budget.bytes_read <= 64
+    with pytest.raises(fetch.FetchError, match='byte budget'):
+        fetch.acquire('https://example.com/role', ['example.com'], budget)
+    assert len(calls) == 1
+
+
+def test_read_failure_without_a_partial_receipt_retains_conservative_charge(transport):
+    _, replies = transport
+    class FailedRead(Response):
+        def read(self, size):
+            self.stream.read(size // 2)
+            raise ConnectionResetError('Synthetic private content must not enter errors')
+    replies.append(FailedRead(b'x' * 64))
+    budget = fetch.FetchBudget(max_bytes=64)
+    with pytest.raises(fetch.FetchError):
+        fetch.acquire('https://example.com/role', ['example.com'], budget)
+    assert budget.bytes_read == 64
+
+
+@pytest.mark.parametrize('framing', [
+    b'Transfer-Encoding: chunked\r\nContent-Length: 65536\r\n',
+    b'Transfer-Encoding: chunked\r\nContent-Length: 0\r\n',
+    b'Transfer-Encoding: gzip\r\nContent-Length: 65536\r\n',
+    b'Transfer-Encoding: gzip\r\n',
+    b'Transfer-Encoding: gzip, chunked\r\n',
+    b'Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n',
+    b'Transfer-Encoding: chunked \r\n',
+    b'Transfer-Encoding: chunked\t\r\n',
+], ids=['chunked-with-length', 'chunked-with-zero-length', 'unsupported-with-length',
+        'unsupported-transfer', 'multiple-transfers', 'duplicate-transfer',
+        'parser-disagrees-trailing-space', 'parser-disagrees-trailing-tab'])
+def test_real_http_response_rejects_ambiguous_framing_before_body_read(transport, framing):
+    prefix = b'Company: Synthetic\n' + b'\n' * (65536 - len(b'Company: Synthetic\n'))
+    tail = b'CAPTCHA: access restricted\n'
+    wire = (b'HTTP/1.1 200 OK\r\n' + framing + b'Content-Type: text/plain\r\n\r\n'
+            + b'10000\r\n' + prefix + b'\r\n' + f'{len(tail):x}\r\n'.encode()
+            + tail + b'\r\n0\r\n\r\n')
+    class Socket:
+        def makefile(self, *_args):
+            return io.BytesIO(wire)
+    response = http.client.HTTPResponse(Socket())
+    response.begin()
+    reads = []
+    original_read = response.read
+    def observed_read(size):
+        reads.append(size)
+        return original_read(size)
+    response.read = observed_read
+    transport[1].append(response)
+    with pytest.raises(fetch.FetchError, match='framing'):
+        fetch.acquire('https://example.com/role', ['example.com'], fetch.FetchBudget())
+    assert not reads
+
+
+@pytest.mark.parametrize('length', [b'5\r\nContent-Length: 6', b'5, 5', b'+5', b'1_0', b'-0', b''])
+def test_real_http_response_rejects_malformed_or_conflicting_length_before_read(transport, length):
+    class Socket:
+        def makefile(self, *_args):
+            return io.BytesIO(b'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: '
+                              + length + b'\r\n\r\nhello')
+    response = http.client.HTTPResponse(Socket())
+    response.begin()
+    reads = []
+    original_read = response.read
+    def observed_read(size):
+        reads.append(size)
+        return original_read(size)
+    response.read = observed_read
+    transport[1].append(response)
+    with pytest.raises(fetch.FetchError, match='length'):
+        fetch.acquire('https://example.com/role', ['example.com'], fetch.FetchBudget())
+    assert not reads
 
 
 @pytest.mark.parametrize('url', [

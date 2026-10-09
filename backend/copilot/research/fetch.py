@@ -206,18 +206,47 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
 
 @dataclass
 class FetchBudget:
-    """Caller-owned single-worker run budget, not a durable concurrency/job authority."""
+    """Caller-owned budget; body-byte charges include failed/partial acquisitions.
+
+    This is not accounting for TLS records, HTTP headers/framing or socket buffers,
+    nor a durable concurrency/job authority. Reserve each bounded read before IO;
+    refund only proven unread bytes after successful return. Failed reads retain
+    the entire reservation because stdlib exceptions may omit consumed partials.
+    Thus bytes_read is a conservative charge, not an exact network measurement.
+    """
     max_requests: int = 10
     run_seconds: float = 120
     started: float = field(default_factory=time.monotonic)
     requests: int = 0
+    max_bytes: int = 10 * MAX_BYTES
+    bytes_read: int = field(default=0, init=False)
+
+    def _validate(self):
+        if (type(self.max_requests) is not int or not 1 <= self.max_requests <= 10
+                or not isinstance(self.run_seconds, (int, float))
+                or isinstance(self.run_seconds, bool) or not 0 < self.run_seconds <= 120
+                or type(self.max_bytes) is not int or not 1 <= self.max_bytes <= 10 * MAX_BYTES):
+            raise FetchError('Invalid research budget')
+
+    def body_read_size(self, requested):
+        self._validate()
+        remaining = self.max_bytes - self.bytes_read
+        if remaining <= 0:
+            raise FetchError('Research response-body byte budget exhausted')
+        return min(requested, remaining)
+
+    def charge_body_bytes(self, size):
+        if type(size) is not int or size < 0 or self.bytes_read + size > self.max_bytes:
+            raise FetchError('Research response-body byte budget exceeded')
+        self.bytes_read += size
 
     def reserve(self):
-        if not 1 <= self.max_requests <= 10 or not 0 < self.run_seconds <= 120:
-            raise FetchError('Invalid research budget')
+        self._validate()
         _remaining(self.started + self.run_seconds)
         if self.requests >= self.max_requests:
             raise FetchError('Research request budget exhausted')
+        if self.bytes_read >= self.max_bytes:
+            raise FetchError('Research response-body byte budget exhausted')
         self.requests += 1
 
 
@@ -237,14 +266,22 @@ class AcquiredSource:
     completeness: str = 'unassessed'
 
 
-def _body(response, deadline):
+def _body(response, deadline, budget=None):
     encoding = (response.getheader('Content-Encoding') or 'identity').lower().strip()
     if encoding not in ('identity', 'gzip', 'deflate'):
         raise FetchError('Unsupported content encoding')
     length = response.getheader('Content-Length')
+    transfer = response.getheader('Transfer-Encoding')
+    if transfer is not None and (transfer.lower() != 'chunked' or length is not None):
+        # HTTPResponse ignores CL when it recognizes chunking. Never use that
+        # ignored header to accept a truncated prefix as the original source.
+        # Match the parser's exact token handling; permissive whitespace stripping
+        # could accept chunk framing the parser actually leaves undecoded.
+        raise FetchError('Ambiguous or unsupported response framing')
     if length is not None:
         try:
-            if not 0 <= int(length) <= MAX_BYTES:
+            if (not length.strip() or any(char not in '0123456789' for char in length.strip())
+                    or not 0 <= int(length) <= MAX_BYTES):
                 raise ValueError()
         except ValueError:
             raise FetchError('Response byte limit exceeded or invalid length') from None
@@ -253,7 +290,19 @@ def _body(response, deadline):
     raw, decoded = bytearray(), bytearray()
     while True:
         _remaining(deadline)
-        chunk = response.read(64 * 1024)
+        if length is not None and len(raw) == int(length):
+            break
+        size = min(64 * 1024, MAX_BYTES - len(raw) + 1)
+        if budget:
+            size = budget.body_read_size(size)
+            budget.charge_body_bytes(size)
+        # IncompleteRead.partial can omit nested chunk payload. Do not refund an
+        # exceptional read or infer that no bytes arrived from a missing receipt.
+        chunk = response.read(size)
+        if budget:
+            if not isinstance(chunk, bytes) or len(chunk) > size:
+                raise FetchError('Invalid bounded response-body read')
+            budget.bytes_read -= size - len(chunk)
         if not chunk:
             break
         raw.extend(chunk)
@@ -311,7 +360,7 @@ def acquire(url: str, confirmed_hosts: list[str], budget: FetchBudget) -> Acquir
             if response.status != 200:
                 raise FetchError('Public source unavailable')
             media = (response.getheader('Content-Type') or '').split(';', 1)[0].strip().lower()
-            raw, decoded, encoding = _body(response, deadline)
+            raw, decoded, encoding = _body(response, deadline, budget)
             try:
                 text, parser = extract(decoded, media, timeout=_remaining(deadline))
             except ExtractionError as exc:
