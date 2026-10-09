@@ -8,13 +8,6 @@ import tempfile
 import time
 from pathlib import Path
 
-import chromadb
-from copilot.models import LocalModels
-from copilot.retrieval import sparse
-from copilot.retrieval.dense import DenseIndex
-from copilot.retrieval.service import EvidenceService
-from copilot.store import Store
-
 
 def metrics(ranked, relevant, cutoff=8):
     """Binary fact-key relevance; unanswerables deliberately have no quality score."""
@@ -41,6 +34,13 @@ def summarize(results):
 
 
 def main():
+    import chromadb
+    from copilot.models import LocalModels
+    from copilot.retrieval import sparse
+    from copilot.retrieval.dense import DenseIndex
+    from copilot.retrieval.service import EvidenceService
+    from copilot.store import Store
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--models", required=True, type=Path)
     parser.add_argument("--output", type=Path)
