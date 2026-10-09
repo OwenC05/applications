@@ -45,3 +45,21 @@ def data_lock(data_dir: Path, timeout: float = 5):
             yield
         finally:
             fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+@contextmanager
+def worker_lock(data_dir: Path):
+    """Normal worker singleton only; API/CLI operations never wait on this lock."""
+    import fcntl
+
+    data_dir.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(data_dir / '.worker.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, 'a') as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise EvidenceError('CONFLICT', 'A local worker is already running', 409) from None
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)

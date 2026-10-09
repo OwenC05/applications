@@ -58,3 +58,61 @@ def test_setup_default_directory_matches_api_without_download(tmp_path, monkeypa
     monkeypatch.setattr(sys, "argv", ["copilot.models", "setup"])
     models.main()
     assert captured == [Settings.from_env().model_dir]
+
+
+@pytest.mark.parametrize('failure', [False, True])
+def test_cold_model_initialization_is_single_flight_and_publishes_no_partial_state(tmp_path, monkeypatch, failure):
+    import sys
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from types import SimpleNamespace
+
+    calls = []
+    entered, release = threading.Event(), threading.Event()
+    class Tokenizer:
+        @staticmethod
+        def from_pretrained(*_args, **_kwargs):
+            calls.append('tokenizer')
+            entered.set()
+            assert release.wait(5)
+            return object()
+    class Embedding:
+        def __init__(self, *_args, **_kwargs):
+            calls.append('embedding')
+        def get_sentence_embedding_dimension(self):
+            return 384
+    class Cross:
+        def __init__(self, *_args, **_kwargs):
+            calls.append('cross')
+            if failure:
+                raise RuntimeError('PRIVATE-MODEL-FAILURE-CANARY')
+    monkeypatch.setitem(sys.modules, 'torch', SimpleNamespace(set_num_threads=lambda _: None))
+    monkeypatch.setitem(sys.modules, 'sentence_transformers', SimpleNamespace(SentenceTransformer=Embedding, CrossEncoder=Cross))
+    monkeypatch.setitem(sys.modules, 'transformers', SimpleNamespace(AutoTokenizer=Tokenizer))
+    model = LocalModels(tmp_path)
+    monkeypatch.setattr(model, '_verified', lambda: {})
+    def ensure():
+        try:
+            model._ensure()
+            return None
+        except Exception as exc:
+            return exc
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = [pool.submit(ensure) for _ in range(6)]
+        assert entered.wait(5)
+        time.sleep(0.1)
+        assert not hasattr(model, 'embedding')  # No partially published model bundle.
+        release.set()
+        results = [future.result(timeout=5) for future in futures]
+    assert calls == ['tokenizer', 'embedding', 'cross']
+    if failure:
+        assert not model._loaded and not hasattr(model, 'tokenizer') and not hasattr(model, 'embedding')
+        assert all(isinstance(result, EvidenceError) for result in results)
+        assert all('PRIVATE-' not in str(result) for result in results)
+        # A later explicit request may retry after repair; failed waiters do not stampede.
+        failure = False
+        model._ensure()
+        assert model._loaded
+    else:
+        assert model._loaded and results == [None] * 6

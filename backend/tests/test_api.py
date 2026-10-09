@@ -206,28 +206,16 @@ def test_source_deletion_revokes_linked_fact_but_does_not_confirm_raw_text(clien
     assert client.get(f"{prefix}/facts").json() == []
 
 
-def test_failed_recovery_is_not_cached_or_bypassed(tmp_path):
-    attempts = []
-    failing = [True]
-
+def test_api_search_never_runs_startup_external_recovery(tmp_path):
     class RecoveringService(FakeService):
         def recover(self):
-            attempts.append('attempt')
-            if failing[0]:
-                raise EvidenceError('CLEANUP_PENDING', 'Synthetic recovery pending', 503)
-
+            pytest.fail('Recovery belongs to the durable worker, not HTTP requests')
     app = create_app(Settings(tmp_path / 'data', tmp_path / 'models'),
                      lambda store, _settings: RecoveringService(store))
     with TestClient(app, base_url='http://127.0.0.1:3001') as client:
         client.headers['x-evidence-token'] = client.get('/api/evidence/status').json()['token']
         owner = profile(client)
         path = f'/api/evidence/profiles/{owner}/search'
-        body = {'corpus': 'facts', 'query': 'Synthetic'}
-        for _ in range(2):
-            assert client.post(path, json=body).status_code == 503
-            assert app.state.service is None
-        assert len(attempts) == 2
-        failing[0] = False
-        assert client.post(path, json=body).status_code == 200
-        assert client.post(path, json=body).status_code == 200
-        assert len(attempts) == 3
+        response = client.post(path, json={'corpus': 'facts', 'query': 'Synthetic'})
+        assert response.status_code == 200
+        assert response.json()['hits'] == []

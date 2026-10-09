@@ -28,6 +28,27 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     restart: unless-stopped
+  worker:
+    build: .
+    init: true
+    command: ["python", "-m", "copilot", "worker"]
+    environment:
+      COPILOT_CHROMA_HOST: chroma
+      COPILOT_CHROMA_PORT: "8000"
+      COPILOT_DATA_DIR: /data
+      COPILOT_MODEL_DIR: /models
+    volumes:
+      - evidence:/data
+      - models:/models:ro
+    depends_on:
+      chroma:
+        condition: service_started
+    mem_limit: 3g
+    cpus: 2
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 60s
+    restart: unless-stopped
   chroma:
     image: chromadb/chroma:1.5.9@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6
     environment:

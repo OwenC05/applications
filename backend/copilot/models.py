@@ -3,6 +3,8 @@ import argparse
 import hashlib
 import json
 import os
+import threading
+from concurrent.futures import Future
 from pathlib import Path
 
 from copilot.contracts import EvidenceError
@@ -53,6 +55,8 @@ class LocalModels:
     def __init__(self, directory: Path):
         self.directory = directory
         self._loaded = False
+        self._initialization_lock = threading.Lock()
+        self._initialization = None
 
     def _verified(self):
         directory = self.directory
@@ -87,27 +91,50 @@ class LocalModels:
             return False
 
     def _ensure(self):
-        if self._loaded:
+        # Single-flight model bundle, not an inference/storage/network permission lock.
+        with self._initialization_lock:
+            if self._loaded:
+                return
+            future = self._initialization
+            leader = future is None
+            if leader:
+                future = Future()
+                self._initialization = future
+        if not leader:
+            future.result()
             return
-        self._verified()
-        directory = self.directory
-        import torch
-        torch.set_num_threads(2)
-        from sentence_transformers import CrossEncoder, SentenceTransformer
-        from transformers import AutoTokenizer
-
-        self.tokenizer = AutoTokenizer.from_pretrained(str(directory / "embedding"),
-                                                      local_files_only=True, trust_remote_code=False)
-        self.embedding = SentenceTransformer(str(directory / "embedding"), device="cpu",
-                                            local_files_only=True, trust_remote_code=False,
-                                            model_kwargs={"use_safetensors": True})
-        self.embedding.max_seq_length = 256
-        self.cross = CrossEncoder(str(directory / "reranker"), device="cpu", max_length=512,
-                                  local_files_only=True, trust_remote_code=False,
-                                  model_kwargs={"use_safetensors": True})
-        if self.embedding.get_sentence_embedding_dimension() != 384:
-            raise EvidenceError("MODEL_NOT_READY", "Unexpected embedding dimension", 503)
-        self._loaded = True
+        try:
+            self._verified()
+            directory = self.directory
+            import torch
+            torch.set_num_threads(2)
+            from sentence_transformers import CrossEncoder, SentenceTransformer
+            from transformers import AutoTokenizer
+            tokenizer = AutoTokenizer.from_pretrained(str(directory / 'embedding'),
+                local_files_only=True, trust_remote_code=False)
+            embedding = SentenceTransformer(str(directory / 'embedding'), device='cpu',
+                local_files_only=True, trust_remote_code=False, model_kwargs={'use_safetensors': True})
+            embedding.max_seq_length = 256
+            cross = CrossEncoder(str(directory / 'reranker'), device='cpu', max_length=512,
+                local_files_only=True, trust_remote_code=False, model_kwargs={'use_safetensors': True})
+            if embedding.get_sentence_embedding_dimension() != 384:
+                raise EvidenceError('MODEL_NOT_READY', 'Unexpected embedding dimension', 503)
+            # Publish all references together only after every constructor validates.
+            with self._initialization_lock:
+                self.tokenizer, self.embedding, self.cross = tokenizer, embedding, cross
+                self._loaded = True
+            future.set_result(None)
+        except BaseException as exc:
+            safe = exc if isinstance(exc, EvidenceError) else EvidenceError(
+                'MODEL_NOT_READY', 'Local model initialization failed; verify explicit setup', 503)
+            future.set_exception(safe)
+            if not isinstance(exc, Exception):
+                raise
+            raise safe from None
+        finally:
+            with self._initialization_lock:
+                if self._initialization is future:
+                    self._initialization = None
 
     def tokenize_offsets(self, text: str) -> list[tuple[int, int]]:
         self._ensure()

@@ -111,8 +111,7 @@ def test_cleanup_failure_remains_pending_and_symlinks_rejected(store, monkeypatc
         store.complete_cleanup(ticket.id)
     assert exc.value.code == 'CLEANUP_PENDING'
     assert 'diagnostic' not in str(exc.value)
-    with pytest.raises(EvidenceError):
-        Store(store.root)  # Readiness cannot succeed while orphan cleanup is blocked.
+    assert Store(store.root).pending_cleanup()  # Startup does not do external/file cleanup.
     monkeypatch.setattr(Path, 'unlink', original)
     assert Store(store.root).pending_cleanup()[0].id == ticket.id
     store.complete_cleanup(ticket.id)
@@ -148,6 +147,8 @@ s.add_source(sys.argv[2], 'synthetic.txt', 'text/plain', b'private synthetic orp
     assert process.returncode == 73
     assert len(list(store.blobs.iterdir())) == 2
     restarted = Store(store.root)
+    assert len(list(restarted.blobs.iterdir())) == 2  # API startup preserves registered pending work.
+    restarted.reconcile_blobs()
     assert [x.name for x in restarted.blobs.iterdir()] == [surviving.id]
     assert restarted.read_source(other.id, surviving.id) == b'keep'
     restarted.complete_cleanup(restarted.delete_profile(p.id).id)
@@ -160,23 +161,20 @@ def test_reconciliation_refuses_unknown_paths_and_symlinks(store):
 
     unknown = store.blobs / 'not-owned.txt'
     unknown.write_bytes(b'leave untouched')
-    with pytest.raises(EvidenceError) as exc:
-        store.reconcile_blobs()
-    assert exc.value.code == 'CLEANUP_PENDING'
+    assert store.reconcile_blobs()['unknown_blobs'] == 1
     assert unknown.read_bytes() == b'leave untouched'
     unknown.unlink()
     outside = store.root / 'outside.txt'
     outside.write_bytes(b'outside')
     link = store.blobs / str(uuid.uuid4())
     link.symlink_to(outside)
-    with pytest.raises(EvidenceError):
-        Store(store.root)
+    assert Store(store.root).reconcile_blobs()['unknown_blobs'] == 1
     assert link.is_symlink() and outside.read_bytes() == b'outside'
     link.unlink()
     orphan = store.blobs / str(uuid.uuid4())
     orphan.write_bytes(b'orphan')
     store.reconcile_blobs()
-    assert not orphan.exists()
+    assert orphan.exists()  # Unknown UUID is not deletion authority.
 
 
 def test_complete_cleanup_reconciles_later_orphan(store):
@@ -187,54 +185,33 @@ def test_complete_cleanup_reconciles_later_orphan(store):
     orphan = store.blobs / str(uuid.uuid4())
     orphan.write_bytes(b'synthetic orphan')
     store.complete_cleanup(ticket.id)
-    assert not orphan.exists()
+    assert orphan.exists()  # Unknown UUID is not deletion authority.
 
 
-def test_reconciliation_waits_for_upload_writer_commit(store, monkeypatch):
+def test_reconciliation_preserves_live_registered_upload_without_waiting_on_sqlite(store, monkeypatch):
     import threading
-
     p = store.create_profile('Synthetic writer', ['tech'])
-    blob_written = threading.Event()
-    allow_commit = threading.Event()
-    reconciliation_done = threading.Event()
-    results = []
-    errors = []
-    original = store._put
-
-    def pause(db, owner, kind, value):
-        if kind == 'source':
-            blob_written.set()
-            if not allow_commit.wait(5):
-                raise RuntimeError('test coordination timeout')
-        return original(db, owner, kind, value)
-
-    monkeypatch.setattr(store, '_put', pause)
-
+    blob_written, allow_commit = threading.Event(), threading.Event()
+    results, errors = [], []
+    original = store._write_blob
+    def pause(path, content):
+        original(path, content)
+        blob_written.set()
+        assert allow_commit.wait(5)
+    monkeypatch.setattr(store, '_write_blob', pause)
     def upload():
         try:
             results.append(store.add_source(p.id, 'race.txt', 'text/plain', b'keep', ['keep'], 'test'))
         except Exception as exc:
             errors.append(exc)
-
-    def reconcile():
-        try:
-            store.reconcile_blobs()
-        except Exception as exc:
-            errors.append(exc)
-        finally:
-            reconciliation_done.set()
-
     writer = threading.Thread(target=upload)
-    cleaner = threading.Thread(target=reconcile)
     writer.start()
     assert blob_written.wait(5)
-    cleaner.start()
     try:
-        assert not reconciliation_done.wait(0.1)
+        assert store.reconcile_blobs()['active_uploads'] == 1
+        assert store.list_profiles()
     finally:
         allow_commit.set()
         writer.join(5)
-        cleaner.join(5)
-    assert not writer.is_alive() and not cleaner.is_alive()
-    assert not errors
+    assert not writer.is_alive() and not errors
     assert store.read_source(p.id, results[0].id) == b'keep'

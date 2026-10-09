@@ -1,5 +1,6 @@
 """Quote-only evidence API, separate from the legacy application workflow."""
 import secrets
+import threading
 from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
@@ -10,14 +11,22 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 
-from .config import Settings, data_lock
+from .config import Settings
 from .contracts import Citation, EvidenceError, Span
 from .documents import ingest
+from .domain.contracts import Contract
+from .jobs import Jobs
+from .provider import Provider
 from .store import Store
 
 
 class Input(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class IndexInput(Contract):
+    corpus: Literal['facts', 'documents']
+    idempotency_key: str = Field(min_length=1, max_length=200)
 
 
 class ProfileInput(Input):
@@ -71,6 +80,9 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
     app.state.store = store
     app.state.token = token
     app.state.service = None
+    service_lock = threading.Lock()
+    jobs = Jobs(store)
+    app.state.jobs = jobs
     from .domain import contracts as domain
     from .domain import interview
     from .domain import repository as workspace
@@ -80,23 +92,15 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
     importer = LegacyImporter(repository)
 
     def service():
-        if app.state.service is None:
-            try:
-                candidate = service_factory(store, settings)
-                candidate.recover()
-                app.state.service = candidate
-            except EvidenceError:
-                raise
-            except Exception:
-                raise EvidenceError("INDEX_NOT_READY", "Chroma is unavailable. Start the private database.", 503) from None
-        return app.state.service
-
-    def recover_cleanup():
-        tickets = store.pending_cleanup()
-        if tickets:
-            for ticket in tickets:
-                service().cleanup(ticket)
-        return tickets
+        with service_lock:
+            if app.state.service is None:
+                try:
+                    app.state.service = service_factory(store, settings)
+                except EvidenceError:
+                    raise
+                except Exception:
+                    raise EvidenceError('INDEX_NOT_READY', 'Chroma is unavailable. Start the private database.', 503) from None
+            return app.state.service
 
     @app.middleware("http")
     async def local_boundary(request: Request, call_next):
@@ -147,51 +151,46 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
 
     @app.get("/api/evidence/status")
     def status():
-        with data_lock(settings.data_dir):
-            from .models import LocalModels
-            models_ready = LocalModels(settings.model_dir).ready
-            pending = len(store.pending_cleanup())
-            return {"token": token, "mode": "quote_only", "models_ready": models_ready,
-                    "pending_cleanup": pending, "cloud_enabled": False,
-                    "setup": "python -m copilot.models setup", "indexing": "python -m copilot index --profile ID --corpus facts|documents"}
+        pending = len(store.pending_cleanup())
+        with store._tx() as db:
+            generation_pending = db.execute("SELECT COUNT(*) FROM generation_intents WHERE state='cleanup_pending'").fetchone()[0]
+        return {'token': token, 'mode': 'quote_only', 'models_ready': False,
+                'model_readiness': 'not_checked_in_request',
+                'pending_cleanup': pending, 'pending_generation_cleanup': generation_pending, 'cloud_enabled': False,
+                'available_job_handlers': ['index'],
+                'setup': 'python -m copilot.models setup',
+                'indexing': 'python -m copilot index --profile ID --corpus facts|documents'}
 
     @app.get("/api/evidence/profiles")
     def profiles():
-        with data_lock(settings.data_dir):
-            return [asdict(item) for item in store.list_profiles()]
+        return [asdict(item) for item in store.list_profiles()]
 
     @app.post("/api/evidence/profiles")
     def create_profile(body: ProfileInput):
-        with data_lock(settings.data_dir):
-            return asdict(store.create_profile(body.name, body.sectors))
+        return asdict(store.create_profile(body.name, body.sectors))
 
     @app.get("/api/evidence/profiles/{profile_id}/sources")
     def sources(profile_id: str):
-        with data_lock(settings.data_dir):
-            return [asdict(item) for item in store.list_sources(profile_id)]
+        return [asdict(item) for item in store.list_sources(profile_id)]
 
     @app.post("/api/evidence/profiles/{profile_id}/sources")
     def upload(profile_id: str, file: UploadFile = File(...)):
-        with data_lock(settings.data_dir):
-            return asdict(ingest(store, profile_id, file.filename or "", file.content_type or "", file.file.read(10 * 1024 * 1024 + 1)))
+        return asdict(ingest(store, profile_id, file.filename or "", file.content_type or "", file.file.read(10 * 1024 * 1024 + 1)))
 
     @app.get("/api/evidence/profiles/{profile_id}/sources/{source_id}/units")
     def units(profile_id: str, source_id: str):
-        with data_lock(settings.data_dir):
-            return [asdict(item) for item in store.list_units(profile_id, source_id)]
+        return [asdict(item) for item in store.list_units(profile_id, source_id)]
 
     @app.get("/api/evidence/profiles/{profile_id}/sources/{source_id}/original")
     def original(profile_id: str, source_id: str):
         from starlette.responses import Response
-        with data_lock(settings.data_dir):
-            content = store.read_source(profile_id, source_id)
-            return Response(content, media_type="application/octet-stream",
-                            headers={"Content-Disposition": 'attachment; filename="source.bin"'})
+        content = store.read_source(profile_id, source_id)
+        return Response(content, media_type="application/octet-stream",
+                        headers={"Content-Disposition": 'attachment; filename="source.bin"'})
 
     @app.get("/api/evidence/profiles/{profile_id}/facts")
     def facts(profile_id: str):
-        with data_lock(settings.data_dir):
-            return [asdict(item) for item in store.list_facts(profile_id)]
+        return [asdict(item) for item in store.list_facts(profile_id)]
 
     @app.post("/api/evidence/profiles/{profile_id}/facts")
     def confirm(profile_id: str, body: FactInput):
@@ -201,48 +200,75 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
             origin = Span(**body.origin) if body.origin is not None else None
         except TypeError:
             raise EvidenceError("INVALID_INPUT", "Invalid origin span.") from None
-        with data_lock(settings.data_dir):
-            return asdict(store.confirm_fact(profile_id, body.text, origin, body.supersedes))
+        return asdict(store.confirm_fact(profile_id, body.text, origin, body.supersedes))
 
     @app.post("/api/evidence/profiles/{profile_id}/search")
     def search(profile_id: str, body: SearchInput):
-        with data_lock(settings.data_dir):
-            recover_cleanup()
-            return {"mode": "quotation_not_answer", "hits": [asdict(hit) for hit in service().search(
-                profile_id, body.corpus, body.query, body.source_ids, body.limit)]}
+        return {"mode": "quotation_not_answer", "hits": [asdict(hit) for hit in service().search(
+            profile_id, body.corpus, body.query, body.source_ids, body.limit)]}
 
     @app.post("/api/evidence/profiles/{profile_id}/citations")
     def citation(profile_id: str, body: CitationInput):
-        with data_lock(settings.data_dir):
-            return store.resolve_citation(profile_id, Citation(profile_id=profile_id, **body.model_dump()))
+        return store.resolve_citation(profile_id, Citation(profile_id=profile_id, **body.model_dump()))
 
     def finish_delete(ticket):
-        try:
-            service().cleanup(ticket)
-            return {"ticket_id": ticket.id, "state": "complete", "scope": "application_level_not_forensic"}
-        except Exception:
-            return JSONResponse({"ticket_id": ticket.id, "state": "pending", "scope": "access_revoked_cleanup_pending"}, 202)
+        # Canonical access is revoked already; only the worker touches external artifacts.
+        return JSONResponse({'ticket_id': ticket.id, 'state': 'pending',
+                             'scope': 'access_revoked_cleanup_pending'}, 202)
 
     @app.delete("/api/evidence/profiles/{profile_id}/facts/{fact_id}")
     def revoke(profile_id: str, fact_id: str):
-        with data_lock(settings.data_dir):
-            return finish_delete(store.revoke_fact(profile_id, fact_id))
+        return finish_delete(store.revoke_fact(profile_id, fact_id))
 
     @app.delete("/api/evidence/profiles/{profile_id}/sources/{source_id}")
     def delete_source(profile_id: str, source_id: str):
-        with data_lock(settings.data_dir):
-            return finish_delete(store.delete_source(profile_id, source_id))
+        return finish_delete(store.delete_source(profile_id, source_id))
 
     @app.delete("/api/evidence/profiles/{profile_id}")
     def delete_profile(profile_id: str):
-        with data_lock(settings.data_dir):
-            return finish_delete(store.delete_profile(profile_id))
+        return finish_delete(store.delete_profile(profile_id))
 
     async def workspace_input(request, model):
         if request.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'application/json':
             raise EvidenceError('INVALID_INPUT', 'Workspace mutations require application/json', 415)
         # Strict models intentionally use JSON validation for tuple/time wire types.
         return model.model_validate_json(await request.body())
+
+    def job_summary(job):
+        fields = ('id', 'profile_id', 'application_id', 'kind', 'state', 'stage', 'revisions',
+                  'fence', 'attempt_count', 'cancellation_requested', 'heartbeat_at', 'lease_expires_at')
+        result = job.model_dump(mode='json', include=set(fields))
+        with store._tx() as db:
+            result['cleanup_pending'] = bool(db.execute("SELECT 1 FROM generation_intents WHERE owner=? AND json_extract(data,'$.job_id')=? AND state='cleanup_pending' LIMIT 1",
+                                                       (job.profile_id, job.id)).fetchone())
+        if result['stage'] not in {'queued', 'started', 'index_published', 'cancelled',
+                                  'scope_forgotten', 'missing_scope', 'stale_inputs', 'lease_limit', 'provider_unknown'}:
+            result['stage'] = 'working'
+        return result
+
+    @app.post('/api/workspace/profiles/{profile_id}/indexes', status_code=202)
+    async def workspace_index(profile_id: str, request: Request):
+        body = await workspace_input(request, IndexInput)
+        job = jobs.enqueue(profile_id, 'index', {'corpus': body.corpus}, body.idempotency_key)
+        return {'schema_version': 1, 'job': job_summary(job)}
+
+    @app.get('/api/workspace/profiles/{profile_id}/jobs')
+    def workspace_jobs(profile_id: str):
+        return {'schema_version': 1, 'jobs': [job_summary(job) for job in jobs.list(profile_id)]}
+
+    @app.get('/api/workspace/profiles/{profile_id}/jobs/{job_id}')
+    def workspace_job(profile_id: str, job_id: str):
+        return {'schema_version': 1, 'job': job_summary(jobs.get(profile_id, job_id))}
+
+    @app.post('/api/workspace/profiles/{profile_id}/jobs/{job_id}/cancel')
+    async def workspace_cancel(profile_id: str, job_id: str, request: Request):
+        await workspace_input(request, Contract)
+        return {'schema_version': 1, 'job': job_summary(jobs.cancel(profile_id, job_id))}
+
+    @app.get('/api/workspace/profiles/{profile_id}/usage')
+    def workspace_usage(profile_id: str):
+        # Read-only accounting; no key lookup, purpose grant or default budget enabling.
+        return {'schema_version': 1, 'usage': Provider(jobs, lambda: None).usage(profile_id)}
 
     @app.get('/api/workspace/status')
     def workspace_status():
@@ -251,139 +277,116 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
 
     @app.get('/api/workspace/profiles')
     def workspace_profiles():
-        with data_lock(settings.data_dir):
-            return repository.profiles()
+        return repository.profiles()
 
     @app.post('/api/workspace/profiles')
     async def workspace_create(request: Request):
         body = await workspace_input(request, domain.ProfileCreate)
-        with data_lock(settings.data_dir):
-            return repository.create_profile(body)
+        return repository.create_profile(body)
 
     @app.get('/api/workspace/profiles/{profile_id}')
     def workspace_detail(profile_id: str):
-        with data_lock(settings.data_dir):
-            return repository.detail(profile_id)
+        return repository.detail(profile_id)
 
     @app.patch('/api/workspace/profiles/{profile_id}')
     async def workspace_patch(profile_id: str, request: Request):
         body = await workspace_input(request, domain.ProfilePatch)
-        with data_lock(settings.data_dir):
-            return repository.patch_profile(profile_id, body)
+        return repository.patch_profile(profile_id, body)
 
     @app.delete('/api/workspace/profiles/{profile_id}')
     def workspace_delete(profile_id: str):
-        with data_lock(settings.data_dir):
-            result = finish_delete(store.delete_profile(profile_id))
-            pending = isinstance(result, JSONResponse)
-            return domain.DeleteResult(deleted=True, cleanup_pending=pending)
+        result = finish_delete(store.delete_profile(profile_id))
+        pending = isinstance(result, JSONResponse)
+        return domain.DeleteResult(deleted=True, cleanup_pending=pending)
 
     @app.get('/api/workspace/profiles/{profile_id}/export')
     def workspace_export(profile_id: str):
-        with data_lock(settings.data_dir):
-            return repository.export(profile_id)
+        return repository.export(profile_id)
 
     @app.post('/api/workspace/profiles/{profile_id}/consent')
     async def workspace_consent(profile_id: str, request: Request):
         body = await workspace_input(request, workspace.ConsentInput)
-        with data_lock(settings.data_dir):
-            return repository.consent(profile_id, body)
+        return repository.consent(profile_id, body)
 
     @app.get('/api/workspace/profiles/{profile_id}/facts')
     def workspace_facts(profile_id: str):
-        with data_lock(settings.data_dir):
-            return repository.facts(profile_id)
+        return repository.facts(profile_id)
 
     @app.post('/api/workspace/profiles/{profile_id}/proposals')
     async def workspace_propose(profile_id: str, request: Request):
         body = await workspace_input(request, workspace.ProposalInput)
-        with data_lock(settings.data_dir):
-            return repository.propose(profile_id, body)
+        return repository.propose(profile_id, body)
 
     @app.post('/api/workspace/profiles/{profile_id}/proposals/{proposal_id}/review')
     async def workspace_review(profile_id: str, proposal_id: str, request: Request):
         body = await workspace_input(request, workspace.ReviewInput)
-        with data_lock(settings.data_dir):
-            return repository.review(profile_id, proposal_id, body)
+        return repository.review(profile_id, proposal_id, body)
 
     @app.delete('/api/workspace/profiles/{profile_id}/proposals/{proposal_id}')
     async def workspace_proposal_delete(profile_id: str, proposal_id: str, request: Request):
         body = await workspace_input(request, workspace.ProposalDelete)
-        with data_lock(settings.data_dir):
-            return repository.delete_proposal(profile_id, proposal_id, body)
+        return repository.delete_proposal(profile_id, proposal_id, body)
 
     @app.get('/api/workspace/profiles/{profile_id}/interview')
     def workspace_questions(profile_id: str):
-        with data_lock(settings.data_dir):
-            detail = repository.detail(profile_id)
-            return {'schema_version': 1, 'questions': interview.questions(detail.profile.sectors),
-                    'progress': detail.interview, 'answers': detail.interview_answers}
+        detail = repository.detail(profile_id)
+        return {'schema_version': 1, 'questions': interview.questions(detail.profile.sectors),
+                'progress': detail.interview, 'answers': detail.interview_answers}
 
     @app.post('/api/workspace/profiles/{profile_id}/interview/answers')
     async def workspace_answer(profile_id: str, request: Request):
         body = await workspace_input(request, workspace.InterviewInput)
-        with data_lock(settings.data_dir):
-            return repository.answer(profile_id, body)
+        return repository.answer(profile_id, body)
 
     @app.patch('/api/workspace/profiles/{profile_id}/interview')
     async def workspace_progress(profile_id: str, request: Request):
         body = await workspace_input(request, workspace.ProgressInput)
-        with data_lock(settings.data_dir):
-            return repository.progress(profile_id, body)
+        return repository.progress(profile_id, body)
 
     @app.post('/api/workspace/profiles/{profile_id}/typed-values')
     async def workspace_typed(profile_id: str, request: Request):
         body = await workspace_input(request, workspace.TypedInput)
-        with data_lock(settings.data_dir):
-            return repository.typed(profile_id, body)
+        return repository.typed(profile_id, body)
 
     @app.delete('/api/workspace/profiles/{profile_id}/typed-values/{record_id}')
     async def workspace_delete_typed(profile_id: str, record_id: str, request: Request):
         body = await workspace_input(request, workspace.ExpectedMetadata)
-        with data_lock(settings.data_dir):
-            return repository.delete_typed(profile_id, record_id, body)
+        return repository.delete_typed(profile_id, record_id, body)
 
     @app.post('/api/workspace/profiles/{profile_id}/applications')
     async def workspace_application_create(profile_id: str, request: Request):
         body = await workspace_input(request, workspace.ApplicationInput)
-        with data_lock(settings.data_dir):
-            return repository.create_application(profile_id, body)
+        return repository.create_application(profile_id, body)
 
     @app.get('/api/workspace/profiles/{profile_id}/applications/{application_id}')
     def workspace_application(profile_id: str, application_id: str):
-        with data_lock(settings.data_dir):
-            return repository.application(profile_id, application_id)
+        return repository.application(profile_id, application_id)
 
     @app.patch('/api/workspace/profiles/{profile_id}/applications/{application_id}')
     async def workspace_application_patch(profile_id: str, application_id: str, request: Request):
         body = await workspace_input(request, workspace.ApplicationPatch)
-        with data_lock(settings.data_dir):
-            return repository.patch_application(profile_id, application_id, body)
+        return repository.patch_application(profile_id, application_id, body)
 
     @app.delete('/api/workspace/profiles/{profile_id}/applications/{application_id}')
     async def workspace_application_delete(profile_id: str, application_id: str, request: Request):
         body = await workspace_input(request, workspace.ApplicationPatch)
         if body.model_fields_set - {'schema_version', 'expected_input_revision', 'expected_output_revision'}:
             raise EvidenceError('INVALID_INPUT', 'Deletion accepts only expected revisions')
-        with data_lock(settings.data_dir):
-            return repository.delete_application(profile_id, application_id, body)
+        return repository.delete_application(profile_id, application_id, body)
 
     @app.get('/api/workspace/profiles/{profile_id}/applications/{application_id}/history')
     def workspace_history(profile_id: str, application_id: str):
-        with data_lock(settings.data_dir):
-            return repository.history(profile_id, application_id)
+        return repository.history(profile_id, application_id)
 
     @app.post('/api/workspace/profiles/{profile_id}/applications/{application_id}/history')
     async def workspace_feedback(profile_id: str, application_id: str, request: Request):
         body = await workspace_input(request, workspace.FeedbackInput)
-        with data_lock(settings.data_dir):
-            return repository.feedback(profile_id, application_id, body)
+        return repository.feedback(profile_id, application_id, body)
 
     @app.post('/api/workspace/import/legacy/dry-run')
     def workspace_legacy_dry_run(file: UploadFile = File(...)):
         selected = file.file.read(1024 * 1024 + 1)
-        with data_lock(settings.data_dir):
-            return importer.run(selected)
+        return importer.run(selected)
 
     @app.post('/api/workspace/import/legacy/commit')
     def workspace_legacy_commit(request: Request, file: UploadFile = File(...)):
@@ -391,9 +394,8 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
         if request.headers.get('x-confirm-legacy-import') != 'true':
             raise EvidenceError('INVALID_INPUT', 'Explicit legacy import confirmation required')
         selected = file.file.read(1024 * 1024 + 1)
-        with data_lock(settings.data_dir):
-            return importer.run(selected, commit=True,
-                                expected_sha256=request.headers.get('x-legacy-source-sha256'))
+        return importer.run(selected, commit=True,
+                            expected_sha256=request.headers.get('x-legacy-source-sha256'))
 
     ui = Path(__file__).resolve().parent.parent / "ui"
 

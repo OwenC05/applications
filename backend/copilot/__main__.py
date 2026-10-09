@@ -1,9 +1,8 @@
-"""Explicit model setup and local index builds; no background pseudo-job."""
+"""Explicit local commands; all indexing uses the same durable fenced worker."""
 import argparse
 import json
-from dataclasses import asdict
 
-from .config import Settings, data_lock
+from .config import Settings
 from .contracts import EvidenceError
 
 
@@ -16,6 +15,9 @@ def main():
     index.add_argument("--profile", required=True)
     index.add_argument("--corpus", choices=["facts", "documents"], required=True)
     commands.add_parser("cleanup")
+    worker_command = commands.add_parser('worker')
+    worker_command.add_argument('--once', action='store_true', help='Handle at most one queued job and reconcile registered cleanup')
+
     args = parser.parse_args()
     settings = Settings.from_env()
     try:
@@ -28,15 +30,31 @@ def main():
         else:
             from .api import make_service
             from .store import Store
-            with data_lock(settings.data_dir, timeout=5):
-                store = Store(settings.data_dir)
-                service = make_service(store, settings)
-                service.recover()
-                if args.command == "index":
-                    result = service.build(args.profile, args.corpus)
-                    print(json.dumps(asdict(result)))
+            from .worker import Worker
+            store = Store(settings.data_dir)
+            worker = Worker(store, lambda: make_service(store, settings))
+            if args.command == 'worker':
+                if args.once:
+                    from .config import worker_lock
+                    with worker_lock(store.root):
+                        worker.run_once()
+                        print(json.dumps(worker.last_outcome))
+                        if worker.outcome_failed(worker.last_outcome):
+                            raise SystemExit(1)
                 else:
-                    print(json.dumps({"pending_cleanup": len(store.pending_cleanup())}))
+                    import signal
+                    signal.signal(signal.SIGTERM, lambda *_args: worker.stop.set())
+                    signal.signal(signal.SIGINT, lambda *_args: worker.stop.set())
+                    worker.run_forever()
+            elif args.command == 'index':
+                import uuid
+                job = worker.jobs.enqueue(args.profile, 'index', {'corpus': args.corpus}, str(uuid.uuid4()))
+                result = worker.run_job(job.id)
+                if not result or result.get('state') != 'completed':
+                    raise EvidenceError('INDEX_NOT_READY', 'Index job did not complete; inspect its durable status', 503)
+                print(json.dumps(worker.jobs.stage_result(args.profile, job.id, 'index_published')))
+            else:
+                print(json.dumps(worker.recover()))
     except EvidenceError as error:
         print(json.dumps({"error": {"code": error.code, "message": error.safe_message}}))
         raise SystemExit(1) from None

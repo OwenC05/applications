@@ -1,3 +1,5 @@
+import {modelReadinessNotice} from './status.js';
+
 const $ = (id) => document.getElementById(id);
 let token = '', profile = '', epoch = 0, sources = [];
 function notice(text) { $('notice').textContent = text; }
@@ -22,7 +24,7 @@ async function refresh() {
   $('profile').value = id;
   const prefix = 'uv run --directory backend python';
   $('commands').textContent = `${prefix} -m copilot.models setup\n${prefix} -m copilot index --profile ${id || 'PROFILE_ID'} --corpus facts\n${prefix} -m copilot index --profile ${id || 'PROFILE_ID'} --corpus documents`;
-  notice(`${status.models_ready ? 'Models cached.' : 'Model setup required.'} Cloud disabled. ${status.pending_cleanup ? `${status.pending_cleanup} cleanup pending; run the cleanup command.` : ''}`);
+  notice(`${modelReadinessNotice(status)} Cloud disabled. ${status.pending_cleanup ? `${status.pending_cleanup} cleanup pending; run the cleanup command.` : ''}`);
   if (!id) { $('sources').replaceChildren(); $('facts').replaceChildren(); $('selection').replaceChildren(); return; }
   const [newSources, facts] = await Promise.all([api(path('/sources')), api(path('/facts'))]);
   if (mark !== epoch || id !== profile) return;

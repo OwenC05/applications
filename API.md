@@ -116,7 +116,7 @@ Frozen route groups (data routes implemented in S1; later capabilities remain ga
 - `POST /profiles/{id}/applications`: ApplicationRecord input fields, server IDs,
   revision/time. `PATCH .../applications/{application_id}`: validated input edits
   with expected input revision. Stale concurrent writes return409.
-- Later S2–S11 add job/research/draft/review/form/grant/submission routes against
+- S2 job routes are described below. Later slices add research/draft/review/form/grant/submission routes against
   frozen models; their exact HTTP shapes are committed before each consuming UI
   slice. A model/grant supplied by a client never establishes stored permission.
 
@@ -217,8 +217,48 @@ ID-aware editor is implemented. Citation integrity is displayed separately from
 semantic support. Source deletion distinguishes `pending`, `complete` and
 unrecognized responses; pending means access revoked, not external cleanup done.
 
+### Durable indexing, status and worker outcomes
+
+These workspace routes use the same boot-session token, strict JSON validation
+and profile ownership checks as the data routes. They do not initialize models
+or Chroma merely to enqueue, read or cancel a job.
+
+| Route | Input / result |
+| --- | --- |
+| `POST /profiles/{id}/indexes` | `{schema_version:1,corpus:"facts"\|"documents",idempotency_key}`; `202` with `{schema_version:1,job}`. Repeating the same owned request returns its durable job. |
+| `GET /profiles/{id}/jobs` | `{schema_version:1,jobs:[...]}`; content-free summaries, not parameters, stage text or idempotency keys. |
+| `GET /profiles/{id}/jobs/{job_id}` | Same summary; another owner's job returns `404`. |
+| `POST .../jobs/{job_id}/cancel` | `{schema_version:1}`; cancellation request and current durable state. Already transmitted work is not recalled. |
+| `GET /profiles/{id}/usage` | `{schema_version:1,usage}`; reserved/reported/indeterminate accounting, `monetary_cost:null` and unknown pricing, not an invented zero price. |
+
+Summaries expose job ID/owner/application/kind/state, bounded stage, captured
+revisions, fence/attempt count, cancellation flag, heartbeat/lease and generation
+cleanup-pending flag. Only the `index` handler is available. Workspace capability
+flags do not imply researched-drafting or browser readiness.
+
+`GET /api/evidence/status` reports `model_readiness:"not_checked_in_request"`;
+legacy `models_ready:false` must not be interpreted as a failed cache check.
+Model validation occurs during actual indexing/search. API startup and logical
+deletion do not wait for model loading or external cleanup. Evidence deletion
+returns `202` with pending state; workspace deletion uses its versioned
+`DeleteResult` cleanup flag. The worker reconciles registered artifacts later.
+
+The worker renews job leases during outside-transaction work. Expected authority
+loss and infrastructure heartbeat failure are distinguished. Daemon outcomes are
+bounded JSON on stderr; `worker --once` stdout is
+`{schema_version:1,job,heartbeat,recovery,claim?}` with a nonzero exit on a failed
+job/claim/heartbeat/recovery or pending recovery. No raw exception, uploaded text,
+provider key or private idempotency value belongs in those diagnostics.
+
+Upload staging records exclusive-open file acquisition separately from a reserved
+identity. Cleanup requires the recorded device/inode identity and preserves an
+unknown colliding/replacement file. A crash before the acquisition receipt can
+remain pending even if the file is currently absent. Terminal, absent uploads
+do not cause repeated cleanup writes. Parsing stays bounded synchronous work
+outside broad API/storage locks; this is not a parser-job capability.
+
 Generation recovery retains ambiguous dispatched dense writes. Neither local
 producer-lock release nor current Chroma absence can clear their tickets without
 the recorded completed write envelope. Cleanup is exact-generation and anchored-
-path scoped; unknown artifacts are preserved. These are reviewed components,
-not full worker/upload integration or a qualified forensic deletion guarantee.
+path scoped; unknown artifacts are preserved. Worker/upload integration does not
+turn logical deletion into a qualified forensic deletion guarantee.

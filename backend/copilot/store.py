@@ -1,6 +1,7 @@
 """SQLite is authoritative; index manifests contain no applicant text."""
 import hashlib
 import json
+import os
 import sqlite3
 import uuid
 from contextlib import contextmanager, nullcontext
@@ -52,6 +53,10 @@ class Store:
         self.blobs.mkdir(exist_ok=True)
         if self.blobs.is_symlink() or self.blobs.resolve().parent != self.root:
             fail('INVALID_INPUT', 'Invalid owned storage directory', 400)
+        self.upload_locks = self.root / 'upload-locks'
+        self.upload_locks.mkdir(exist_ok=True)
+        if self.upload_locks.is_symlink() or self.upload_locks.resolve().parent != self.root:
+            fail('INVALID_INPUT', 'Invalid upload lock storage', 400)
         self.db = self.root / 'evidence.sqlite3'
         with self._tx() as db:
             db.executescript('''
@@ -74,6 +79,10 @@ class Store:
                 CREATE TABLE IF NOT EXISTS generation_chunks(generation_id TEXT NOT NULL,
                     id TEXT NOT NULL, owner TEXT NOT NULL, data TEXT NOT NULL,
                     PRIMARY KEY(generation_id,id));
+                CREATE TABLE IF NOT EXISTS upload_receipts(id TEXT PRIMARY KEY,
+                    device INTEGER NOT NULL, inode INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS upload_intents(id TEXT PRIMARY KEY,
+                    owner TEXT NOT NULL, state TEXT NOT NULL, blob_sha256 TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS tickets(id TEXT PRIMARY KEY, data TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS tombstones(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
                     kind TEXT NOT NULL);
@@ -91,30 +100,96 @@ class Store:
                 SELECT g.id,json_extract(g.data,'$.fence'),
                 CASE WHEN EXISTS(SELECT 1 FROM manifests m WHERE m.id=g.id)
                 THEN 'acknowledged' ELSE 'indeterminate' END FROM generation_intents g""")
-        self.reconcile_blobs()
 
-    def _reconcile_blobs(self, db):
-        """Writer transaction fences uploads while uncommitted UUID blobs are removed."""
-        referenced = {r[0] for r in db.execute("SELECT id FROM records WHERE kind='source'")}
-        paths = list(self.blobs.iterdir())
-        # Never follow symlinks or remove arbitrary files, including unknown names.
-        for path in paths:
-            identifier(path.name)
-            if path.is_symlink() or not path.is_file() or path.resolve().parent != self.blobs:
-                raise OSError()
-        for path in paths:
-            if path.name not in referenced:
-                path.unlink()
+    @contextmanager
+    def _upload_lock(self, source_id):
+        import fcntl
+        identifier(source_id)
+        if (self.upload_locks.is_symlink() or self.upload_locks.resolve() != self.root / 'upload-locks'
+                or self.root.is_symlink() or self.root.resolve() != self.root):
+            fail('CLEANUP_PENDING', 'Upload lock path ownership is unsafe', 503)
+        descriptor = os.open(self.upload_locks / source_id, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, 'a') as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                error = EvidenceError('CLEANUP_PENDING', 'Upload producer has not quiesced', 503)
+                error.active_producer = True
+                raise error from None
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+    def cleanup_upload(self, source_id):
+        """Only a registered abandoned upload or exact source tombstone grants deletion."""
+        with self._upload_lock(source_id):
+            with self._tx() as db:
+                intent = db.execute('SELECT owner,state FROM upload_intents WHERE id=?', (source_id,)).fetchone()
+                receipt = db.execute('SELECT device,inode FROM upload_receipts WHERE id=?', (source_id,)).fetchone()
+                source = db.execute("SELECT owner FROM records WHERE id=? AND kind='source'", (source_id,)).fetchone()
+                if source:
+                    return False
+                tombstone = db.execute('SELECT owner,kind FROM tombstones WHERE id=?', (source_id,)).fetchone()
+                if intent:
+                    if intent[1] == 'not_owned':
+                        return True  # Exclusive creation failed: never adopt those bytes.
+                    if receipt is None:
+                        fail('CLEANUP_PENDING', 'Upload file ownership remains unproven', 503)
+                    if intent[1] == 'committed' and tombstone != (intent[0], 'source'):
+                        fail('CLEANUP_PENDING', 'Upload ownership graph needs reconciliation', 503)
+                    db.execute("UPDATE upload_intents SET state='cleanup_pending' WHERE id=?", (source_id,))
+                elif not tombstone or tombstone[1] != 'source':
+                    fail('CLEANUP_PENDING', 'Blob deletion authority is unavailable', 503)
+            path = self._blob(source_id)
+            try:
+                if path.exists() and receipt is not None:
+                    stat = path.stat()
+                    if (stat.st_dev, stat.st_ino) != receipt:
+                        fail('CLEANUP_PENDING', 'Upload file identity no longer matches its acquisition receipt', 503)
+                path.unlink(missing_ok=True)
                 if path.exists():
                     raise OSError()
+            except (OSError, EvidenceError):
+                fail('CLEANUP_PENDING', 'Registered upload cleanup remains pending', 503)
+            with self._tx() as db:
+                db.execute("UPDATE upload_intents SET state='cleaned' WHERE id=?", (source_id,))
+            return True
 
     def reconcile_blobs(self):
-        """Reconcile this store's UUID blobs against all committed source owners."""
-        with self._tx() as db:
+        """Worker-only reconciliation; unknown legacy bytes are preserved and counted."""
+        if self.blobs.is_symlink() or self.blobs.resolve() != self.root / 'blobs':
+            fail('CLEANUP_PENDING', 'Blob path ownership is unsafe', 503)
+        with self._read() as db:
+            intents = db.execute('SELECT id,state FROM upload_intents').fetchall()
+            sources = {r[0] for r in db.execute("SELECT id FROM records WHERE kind='source'")}
+        active = pending = 0
+        for source_id, state in intents:
+            if state == 'not_owned' or state == 'cleaned' and not self._blob(source_id).exists():
+                continue
+            if state == 'committed' and source_id in sources:
+                continue
             try:
-                self._reconcile_blobs(db)
-            except (OSError, EvidenceError):
-                fail('CLEANUP_PENDING', 'Owned blob reconciliation remains pending', 503)
+                self.cleanup_upload(source_id)
+            except EvidenceError as exc:
+                if exc.code != 'CLEANUP_PENDING':
+                    raise
+                pending += 1
+                if getattr(exc, 'active_producer', False):
+                    active += 1
+        known = sources | {row[0] for row in intents if row[1] != 'not_owned'}
+        unknown = sum(path.name not in known for path in self.blobs.iterdir())
+        return {'active_uploads': active, 'cleanup_pending': pending, 'unknown_blobs': unknown}
+
+    @contextmanager
+    def _read(self):
+        db = sqlite3.connect(self.db, timeout=30)
+        try:
+            db.execute('BEGIN')
+            yield db
+        finally:
+            db.rollback()
+            db.close()
 
     @contextmanager
     def _tx(self):
@@ -165,7 +240,9 @@ class Store:
     def _blob(self, source_id):
         identifier(source_id)
         path = self.blobs / source_id
-        if path.is_symlink() or path.resolve().parent != self.blobs.resolve():
+        if (path.is_symlink() or self.blobs.is_symlink() or self.blobs.resolve() != self.root / 'blobs'
+                or self.root.is_symlink() or self.root.resolve() != self.root
+                or path.resolve().parent != self.blobs):
             fail('INVALID_INPUT', 'Invalid blob path', 400)
         return path
 
@@ -211,13 +288,40 @@ class Store:
     def read_source(self, profile_id, source_id):
         with self._tx() as db:
             source = self._record(db, profile_id, source_id, 'source')
-            try:
-                content = self._blob(source_id).read_bytes()
-            except OSError:
-                fail('NOT_FOUND', 'Original source unavailable', 404)
-            if hashlib.sha256(content).hexdigest() != source['blob_sha256']:
-                fail('CONFLICT', 'Original source integrity mismatch', 409)
-            return content
+        try:
+            with self._blob(source_id).open('rb') as selected:
+                content = selected.read(10 * 1024 * 1024 + 1)
+        except OSError:
+            fail('NOT_FOUND', 'Original source unavailable', 404)
+        if hashlib.sha256(content).hexdigest() != source['blob_sha256']:
+            fail('CONFLICT', 'Original source integrity mismatch', 409)
+        with self._tx() as db:
+            self._profile(db, profile_id)
+            current = self._record(db, profile_id, source_id, 'source')
+            if current != source:
+                fail('CONFLICT', 'Original source changed during read', 409)
+        return content
+
+    def _write_blob(self, path, original):
+        try:
+            out = path.open('xb')
+        except FileExistsError:
+            # Definitely not acquired by this producer. Keep a durable exclusion
+            # even if profile deletion already captured this reserved identity.
+            with self._tx() as db:
+                db.execute("UPDATE upload_intents SET state='not_owned' WHERE id=?", (path.name,))
+            raise
+        with out:
+            stat = os.fstat(out.fileno())
+            # A crash between exclusive creation and this receipt stays ambiguous;
+            # reservation/absence alone never proves ownership on restart.
+            with self._tx() as db:
+                if not db.execute('SELECT 1 FROM upload_intents WHERE id=?', (path.name,)).fetchone():
+                    fail('CONFLICT', 'Upload acquisition has no original registration', 409)
+                db.execute('INSERT INTO upload_receipts VALUES(?,?,?)', (path.name, stat.st_dev, stat.st_ino))
+            out.write(original)
+            out.flush()
+            os.fsync(out.fileno())
 
     def add_source(self, profile_id, filename, media_type, original, units, parser_version):
         if not isinstance(original, bytes) or len(original) > 10 * 1024 * 1024:
@@ -228,21 +332,43 @@ class Store:
             fail('INVALID_INPUT', 'Invalid extracted document', 400)
         source = Source(str(uuid.uuid4()), profile_id, filename, media_type,
                         hashlib.sha256(original).hexdigest(), parser_version)
-        path = self._blob(source.id)
+        normalized = []
+        for n, text in enumerate(units):
+            text = text.replace('\r\n', '\n').replace('\r', '\n')
+            normalized.append(Unit(str(uuid.uuid4()), profile_id, source.id, n,
+                n + 1 if media_type == 'application/pdf' else None, text, digest(text)))
+        registered = False
         try:
-            with self._tx() as db:
-                self._profile(db, profile_id)
-                with path.open('xb') as out:
-                    out.write(original)
-                self._put(db, profile_id, 'source', source)
-                for n, text in enumerate(units):
-                    text = text.replace('\r\n', '\n').replace('\r', '\n')
-                    unit = Unit(str(uuid.uuid4()), profile_id, source.id, n,
-                                n + 1 if media_type == 'application/pdf' else None, text, digest(text))
-                    self._put(db, profile_id, 'unit', unit)
-                self._bump(db, profile_id, 'documents')
+            with self._upload_lock(source.id):
+                path = self._blob(source.id)
+                if path.exists():
+                    fail('CONFLICT', 'Upload identity collides with existing bytes', 409)
+                with self._tx() as db:
+                    self._profile(db, profile_id)
+                    if (db.execute('SELECT 1 FROM records WHERE id=?', (source.id,)).fetchone()
+                            or db.execute('SELECT 1 FROM tombstones WHERE id=?', (source.id,)).fetchone()):
+                        fail('CONFLICT', 'Upload identity already exists', 409)
+                    db.execute('INSERT INTO upload_intents VALUES(?,?,?,?)',
+                               (source.id, profile_id, 'writing', source.blob_sha256))
+                    registered = True
+                self._write_blob(self._blob(source.id), original)
+                with self._tx() as db:
+                    self._profile(db, profile_id)
+                    state = db.execute('SELECT state FROM upload_intents WHERE id=? AND owner=?',
+                                       (source.id, profile_id)).fetchone()
+                    if state != ('writing',) or db.execute('SELECT 1 FROM tombstones WHERE id=?', (source.id,)).fetchone():
+                        fail('CONFLICT', 'Upload was revoked before canonical commit', 409)
+                    self._put(db, profile_id, 'source', source)
+                    for unit in normalized:
+                        self._put(db, profile_id, 'unit', unit)
+                    self._bump(db, profile_id, 'documents')
+                    db.execute("UPDATE upload_intents SET state='committed' WHERE id=?", (source.id,))
         except BaseException:
-            path.unlink(missing_ok=True)
+            if registered:
+                try:
+                    self.cleanup_upload(source.id)
+                except (EvidenceError, OSError):
+                    pass  # Durable intent remains for conservative worker recovery.
             raise
         return source
 
@@ -546,6 +672,13 @@ class Store:
                     metadata = json.loads(serialized)
                     if any(span.get('unit_id') in units for span in metadata.get('source_spans', [])) and rid not in facts:
                         facts.append(rid)
+            for upload_id, state in db.execute('SELECT id,state FROM upload_intents WHERE owner=?', (owner,)).fetchall():
+                if profile or upload_id == source_id:
+                    if upload_id not in sources:
+                        sources.append(upload_id)
+                    db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)', (upload_id, owner, 'source'))
+                    if state != 'not_owned':
+                        db.execute("UPDATE upload_intents SET state='cleanup_pending' WHERE id=?", (upload_id,))
             affected = {'facts', 'documents'} if profile else ({'documents'} if source_id else {'facts'})
             if facts:
                 affected.add('facts')
@@ -598,6 +731,7 @@ class Store:
             if source_id and facts:
                 db.execute('UPDATE profile_revisions SET facts=facts+1 WHERE owner=?', (owner,))
                 db.execute("UPDATE manifests SET state='retired' WHERE owner=? AND corpus='facts'", (owner,))
+            self.forget_jobs(db, owner, profile=profile, affected=affected)
             if profile:
                 db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)', (owner, owner, 'profile'))
                 db.execute('DELETE FROM fact_metadata WHERE owner=?', (owner,))
@@ -607,6 +741,32 @@ class Store:
             ticket_data = asdict(ticket)
             db.execute('INSERT INTO tickets VALUES(?,?)', (ticket.id, json.dumps(ticket_data)))
             return ticket
+
+    def forget_jobs(self, db, owner, *, application_id=None, profile=False, affected=()):
+        """Same-transaction derivative forgetting; uncertainty/reservations are never released."""
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'").fetchone():
+            return
+        for jid, serialized, parameters in db.execute('SELECT id,data,parameters FROM jobs WHERE owner=?', (owner,)).fetchall():
+            job, options = json.loads(serialized), json.loads(parameters)
+            dependent = (job.get('application_id') == application_id if application_id else
+                         profile or job['kind'] in ('draft', 'assess')
+                         or job['kind'] == 'index' and options.get('corpus') in affected)
+            if not dependent:
+                continue
+            for aid, data in db.execute("SELECT id,data FROM provider_attempts WHERE job_id=? AND state='prepared'", (jid,)).fetchall():
+                attempt = json.loads(data)
+                attempt['state'] = 'indeterminate'
+                db.execute('UPDATE provider_attempts SET state=?,data=? WHERE id=?', ('indeterminate', json.dumps(attempt), aid))
+            uncertain = bool(db.execute("SELECT 1 FROM provider_attempts WHERE job_id=? AND state='indeterminate'", (jid,)).fetchone())
+            if job['state'] in ('queued', 'running') or uncertain:
+                job.update(state='indeterminate' if uncertain else 'cancelled', cancellation_requested=True,
+                           stage='provider_unknown' if uncertain else 'scope_forgotten')
+            job['idempotency_key'] = 'forgotten'
+            db.execute('DELETE FROM job_stages WHERE job_id=?', (jid,))
+            db.execute('DELETE FROM job_keys WHERE job_id=?', (jid,))
+            db.execute('UPDATE provider_attempts SET response=NULL WHERE job_id=?', (jid,))
+            db.execute('UPDATE jobs SET state=?,data=?,parameters=? WHERE id=?',
+                       (job['state'], json.dumps(job), '{}', jid))
 
     def revoke_fact(self, profile_id, fact_id):
         return self._delete(profile_id, fact_id=fact_id)
@@ -639,26 +799,23 @@ class Store:
             if not row:
                 fail()
             ticket = CleanupTicket(**json.loads(row[0]))
-            try:
-                self._reconcile_blobs(db)
-                if ticket.state == 'complete':
-                    return
-                for sid in ticket.source_ids:
-                    tombstone = db.execute('SELECT owner,kind FROM tombstones WHERE id=?', (sid,)).fetchone()
-                    if tombstone != (ticket.profile_id, 'source'):
-                        raise OSError()
-                    self._blob(sid).unlink(missing_ok=True)
-                    if self._blob(sid).exists():
-                        raise OSError()
-                for rid in ticket.source_ids + ticket.fact_ids:
-                    if db.execute('SELECT 1 FROM records WHERE id=?', (rid,)).fetchone():
-                        raise OSError()
-                for row in db.execute('SELECT kind,data FROM records WHERE owner=?', (ticket.profile_id,)):
-                    obj = json.loads(row[1])
-                    if (row[0] == 'unit' and obj['source_id'] in ticket.source_ids) or (row[0].startswith('chunk:') and obj['record_id'] in ticket.source_ids + ticket.fact_ids):
-                        raise OSError()
-            except (OSError, EvidenceError):
-                fail('CLEANUP_PENDING', 'Owned data cleanup remains pending', 503)
+            if ticket.state == 'complete':
+                return
+            for sid in ticket.source_ids:
+                if db.execute('SELECT owner,kind FROM tombstones WHERE id=?', (sid,)).fetchone() != (ticket.profile_id, 'source'):
+                    fail('CLEANUP_PENDING', 'Source cleanup authority is unavailable', 503)
+        for source_id in ticket.source_ids:
+            if not self.cleanup_upload(source_id):
+                fail('CLEANUP_PENDING', 'Source remains active', 503)
+        with self._tx() as db:
+            for rid in ticket.source_ids + ticket.fact_ids:
+                if db.execute('SELECT 1 FROM records WHERE id=?', (rid,)).fetchone():
+                    fail('CLEANUP_PENDING', 'Canonical cleanup remains pending', 503)
+            for row in db.execute('SELECT kind,data FROM records WHERE owner=?', (ticket.profile_id,)):
+                obj = json.loads(row[1])
+                if ((row[0] == 'unit' and obj['source_id'] in ticket.source_ids)
+                        or (row[0].startswith('chunk:') and obj['record_id'] in ticket.source_ids + ticket.fact_ids)):
+                    fail('CLEANUP_PENDING', 'Canonical derivatives remain pending', 503)
             for gid in ticket.generation_ids:
                 intent = db.execute('SELECT state FROM generation_intents WHERE id=? AND owner=?', (gid, ticket.profile_id)).fetchone()
                 if intent and intent[0] != 'cleaned':

@@ -481,6 +481,7 @@ class DomainRepository:
             metadata_before = self.revisions(db, owner).metadata
             if (app.input_revision, app.output_revision) != (body.expected_input_revision, body.expected_output_revision):
                 fail('CONFLICT', 'Application changed', 409)
+            self.store.forget_jobs(db, owner, application_id=application_id)
             history_ids = {event['id'] for event in self._all(db, owner, 'history')
                            if event['application_id'] == application_id}
             proposal_ids = {proposal.id for proposal in self._all(db, owner, 'proposal', c.Proposal)

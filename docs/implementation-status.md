@@ -22,8 +22,8 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   network deadline. Ambiguous attempts retain reservations and are not replayed.
   Synthetic clock/socket/crash tests and independent code/architecture reviews
   qualify these primitives only. No paid request was made; payload minimization,
-  actual provider compatibility and the worker/API integration remain pending.
-  **This does not complete S2 or enable drafting.**
+  actual provider compatibility and drafting-payload integration remain pending.
+  **These primitives do not enable drafting.**
 - **S2 Part B only:** immutable source capture and generation-specific chunks
   keep tokenization/building outside SQLite transactions. Registered staging,
   current job authority and atomic publication protect eligible older indexes
@@ -31,9 +31,27 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   journals dense writes before dispatch. Local producer exit or an absent Chroma
   collection is not proof of remote quiescence: an unacknowledged write remains
   cleanup-pending without replay, potentially indefinitely. Independent reviews
-  and synthetic crash/deferred-receiver regressions cover this component. Broad
-  API/CLI lock removal, the heartbeat worker and upload-recovery integration are
-  still pending; **Part B does not complete S2**.
+  and synthetic crash/deferred-receiver regressions cover this component.
+- **S2 Part C:** the durable index worker now renews leases independently of
+  inference/network work. Versioned enqueue/status/cancel/usage routes do not
+  initialize external services. API control routes and the CLI no longer use the
+  broad evidence lock; CLI indexing joins the same durable job contract. Upload
+  recovery distinguishes a reserved identity from a device/inode acquisition
+  receipt and preserves unknown collision/replacement files. Model loading is
+  single-flight per model instance. Bounded worker diagnostics distinguish
+  authority loss, failure and pending cleanup; `worker --once` exits nonzero for
+  failure or pending recovery. Upload parsing remains bounded synchronous work,
+  not a new durable parser-job kind.
+  Fresh verification with the pinned cache and an owned Chroma HTTP server passed
+  **438 Python tests, with one privileged-port test skipped**, plus 92 Node tests
+  and syntax checks across 23 modules. A separate actual API/worker smoke passed
+  index enqueue, both corpus builds, hybrid search/citation integrity, API/worker
+  restarts, isolation and logical deletion followed by external cleanup. Its first
+  cold search exceeded a five-second harness timeout; the complete rerun used an
+  explicit 120-second cold-search timeout. This is functional evidence, **not**
+  a latency/capacity benchmark or Docker qualification. A private Compose worker
+  is configured and statically tested; Docker is unavailable on this host.
+  Research/drafting handlers and the full downstream release gates remain pending.
 - **S3 preparation only:** anonymous static HTTPS acquisition with exact-host
   policy, validated pinned IP connections, bounded original bytes, verified TLS,
   canonical extraction and provenance hashes. HTML/PDF parsing runs in bounded

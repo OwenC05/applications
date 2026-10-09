@@ -121,7 +121,19 @@ docker compose exec app python -m copilot index --profile PROFILE_ID --corpus do
 docker compose exec app python -m copilot cleanup
 ```
 
-Only the workbench port is published, on loopback; Chroma has no host port. Named volumes retain evidence, models and Chroma. Health means the API is alive, **not** that models/indexes are prepared; queries validate index readiness and both retrieval branches. Index builds are explicit serialized CLI operations, not durable background jobs. Keep a single API worker, no development reload. Chroma unavailable during deletion leaves access revoked and a pending cleanup ticket, not a false success.
+Only the workbench port is published, on loopback; Chroma and the background worker have no host ports. Named volumes retain evidence, models and Chroma; the worker mounts the model cache read-only. Health means the API is alive, **not** that models/indexes are prepared. Status deliberately does not scan the cache; indexing and queries validate readiness and both retrieval branches. Keep a single API process and one normal background worker, without development reload.
+
+Indexing now uses durable fenced jobs. The commands above enqueue an index job and wait for its durable result, including when the background worker claims it. API clients can instead enqueue with `POST /api/workspace/profiles/PROFILE_ID/indexes` and inspect or cancel the returned job. Only the index handler is enabled; these routes do not enable research or drafting. Deletion revokes access immediately and returns cleanup pending for the worker to reconcile; a database outage or an unacknowledged remote write can keep cleanup pending.
+
+For a non-Docker installation, run the worker in another integrated terminal with the **same** data/model/Chroma settings as the API:
+
+```sh
+uv run --directory backend python -m copilot worker
+# Diagnose at most one queued job plus registered cleanup; nonzero on failure or pending cleanup.
+uv run --directory backend python -m copilot worker --once
+```
+
+The daemon emits bounded, content-free outcome changes to stderr. `--once` emits a versioned JSON job/heartbeat/recovery summary on stdout, not a success claim when recovery is pending. Cancellation prevents later authorized publication; it cannot recall an already dispatched operation. Upload parsing remains bounded synchronous work (PDF parsing uses a subprocess), outside broad API/storage locks, rather than a durable parser job.
 
 ### Python development / verification
 
