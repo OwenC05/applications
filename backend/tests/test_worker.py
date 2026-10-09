@@ -160,7 +160,7 @@ def test_competing_workers_claim_one_job_and_unavailable_handlers_do_not_run(tmp
     second = Worker(store, lambda: pytest.fail('Unavailable handler must not initialize service'))
     application = first.jobs.domain.create_application(owner, ApplicationInput.model_validate_json(
         '{"expected_metadata_revision":0,"company":"Company","role":"Role","sector":"tech","vacancy_url":"https://example.com/job","questions":[]}'))
-    job = first.jobs.enqueue(owner, 'research', {}, 'not-enabled', application_id=application.application_id)
+    job = first.jobs.enqueue(owner, 'draft', {}, 'not-enabled', application_id=application.application_id)
     results = []
     threads = [threading.Thread(target=lambda w=w: results.append(w.run_once(job.id, recovery=False))) for w in (first, second)]
     for thread in threads:

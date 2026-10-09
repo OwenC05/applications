@@ -481,6 +481,7 @@ class DomainRepository:
             metadata_before = self.revisions(db, owner).metadata
             if (app.input_revision, app.output_revision) != (body.expected_input_revision, body.expected_output_revision):
                 fail('CONFLICT', 'Application changed', 409)
+            research_pending = self.store.forget_research(db, owner, application_id)
             self.store.forget_jobs(db, owner, application_id=application_id)
             history_ids = {event['id'] for event in self._all(db, owner, 'history')
                            if event['application_id'] == application_id}
@@ -504,7 +505,7 @@ class DomainRepository:
                     db.execute('DELETE FROM records WHERE id=? AND owner=?', (record_id, owner))
             if self.revisions(db, owner).metadata == metadata_before:
                 self._bump(db, owner)
-            return c.DeleteResult(deleted=True, cleanup_pending=bool(related_facts))
+            return c.DeleteResult(deleted=True, cleanup_pending=bool(related_facts) or research_pending)
 
     def feedback(self, owner, application_id, body):
         with self.store._tx() as db:

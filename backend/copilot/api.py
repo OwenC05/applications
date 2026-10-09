@@ -7,7 +7,7 @@ from typing import Literal
 
 from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 
@@ -83,6 +83,9 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
     service_lock = threading.Lock()
     jobs = Jobs(store)
     app.state.jobs = jobs
+    from .research.service import ResearchRequest, ResearchService
+    research_service = ResearchService(store, jobs=jobs)
+    app.state.research = research_service
     from .domain import contracts as domain
     from .domain import interview
     from .domain import repository as workspace
@@ -157,7 +160,7 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
         return {'token': token, 'mode': 'quote_only', 'models_ready': False,
                 'model_readiness': 'not_checked_in_request',
                 'pending_cleanup': pending, 'pending_generation_cleanup': generation_pending, 'cloud_enabled': False,
-                'available_job_handlers': ['index'],
+                'available_job_handlers': ['index', 'research'],
                 'setup': 'python -m copilot.models setup',
                 'indexing': 'python -m copilot index --profile ID --corpus facts|documents'}
 
@@ -241,10 +244,37 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
         with store._tx() as db:
             result['cleanup_pending'] = bool(db.execute("SELECT 1 FROM generation_intents WHERE owner=? AND json_extract(data,'$.job_id')=? AND state='cleanup_pending' LIMIT 1",
                                                        (job.profile_id, job.id)).fetchone())
+            result['cleanup_pending'] = result['cleanup_pending'] or bool(db.execute("SELECT 1 FROM research_intents WHERE owner=? AND job_id=? AND state='cleanup_pending' LIMIT 1", (job.profile_id, job.id)).fetchone())
         if result['stage'] not in {'queued', 'started', 'index_published', 'cancelled',
-                                  'scope_forgotten', 'missing_scope', 'stale_inputs', 'lease_limit', 'provider_unknown'}:
+                                  'research_published', 'scope_forgotten', 'missing_scope', 'stale_inputs', 'lease_limit', 'provider_unknown'}:
             result['stage'] = 'working'
         return result
+
+    research_base = '/api/workspace/profiles/{profile_id}/applications/{application_id}/research'
+
+    @app.post(research_base, status_code=202)
+    async def workspace_research(profile_id: str, application_id: str, request: Request):
+        body = await workspace_input(request, ResearchRequest)
+        return {'schema_version': 1, 'job': job_summary(research_service.enqueue(profile_id, application_id, body))}
+
+    @app.get(research_base)
+    def workspace_research_list(profile_id: str, application_id: str):
+        return research_service.list(profile_id, application_id)
+
+    @app.get(research_base + '/{run_id}')
+    def workspace_research_run(profile_id: str, application_id: str, run_id: str):
+        return research_service.detail(profile_id, application_id, run_id)
+
+    @app.get(research_base + '/{run_id}/sources/{source_id}')
+    def workspace_research_source(profile_id: str, application_id: str, run_id: str, source_id: str):
+        return research_service.source(profile_id, application_id, run_id, source_id)
+
+    @app.get(research_base + '/{run_id}/sources/{source_id}/original')
+    def workspace_research_original(profile_id: str, application_id: str, run_id: str, source_id: str):
+        raw = research_service.original(profile_id, application_id, run_id, source_id)
+        return Response(raw, media_type='application/octet-stream', headers={
+            'Content-Disposition': 'attachment; filename="research-original.bin"',
+            'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store'})
 
     @app.post('/api/workspace/profiles/{profile_id}/indexes', status_code=202)
     async def workspace_index(profile_id: str, request: Request):

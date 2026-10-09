@@ -51,7 +51,8 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   explicit 120-second cold-search timeout. This is functional evidence, **not**
   a latency/capacity benchmark or Docker qualification. A private Compose worker
   is configured and statically tested; Docker is unavailable on this host.
-  Research/drafting handlers and the full downstream release gates remain pending.
+  Drafting and the full downstream release gates remain pending. The static
+  research handler is described below.
 - **S3 standalone components:** anonymous static HTTPS acquisition with exact-host
   policy, validated pinned IP connections, bounded original bytes, verified TLS,
   canonical extraction and provenance hashes. HTML/PDF parsing runs in bounded
@@ -70,8 +71,28 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   conservative HTTP-body read allowance. Failed/partial reads retain their charge;
   this is not a measurement or cap of TLS/header/framing/socket-buffer traffic.
   Fresh scoped verification passed **170 tests with one privileged-port skip**.
-  No discovery/search agent, renderer, research API/worker handler or source
-  persistence is connected; **S3 remains incomplete**.
+  The API/worker integration now queues scoped research, registers staging before
+  acquisition/writes, and holds every original-blob producer lock through fenced
+  atomic publication. Immutable run/source/unit history and hash-verified original
+  downloads are owner/application scoped. Exact repeated original POSTs return the
+  same job after successful publication; changed payloads conflict. Eligibility
+  follows the latest head, input/research revisions, completeness and freshness,
+  never an older complete run behind a newer incomplete head.
+  Independent review prompted tests-first repairs for missing historical blob
+  ownership links and overlooked employer-text derivatives. Twenty-nine added
+  fault cases verify conservative pending cleanup; original attempt/fence proof
+  does not require a still-current lease. Fresh full verification passed
+  **510 Python tests with one privileged-port skip**, 92 Node tests and syntax
+  checks across 23 modules. This is regression evidence, not release qualification.
+  A separate actual API/worker smoke acquired two public Python.org pages, verified
+  original/canonical hashes, persisted through API restart and cleaned employer
+  blobs while preserving personal evidence and another owner. It used deliberately
+  absent models and an unreachable Chroma port; no inference or paid call occurred.
+  The synthetic nonexistent role correctly remained **incomplete and ineligible**:
+  the narrow adapter did not invent a vacancy match. This proves bounded static
+  integration, not hiring quality or general site support.
+  No discovery/search agent, renderer or employer index is connected;
+  **S3 remains incomplete**.
 - **S4 preparation only:** a bounded query compiler keeps the full question and
   its negation in every variant, discloses omitted criteria, and asks for an
   explicit split rather than truncating oversized questions. Twenty-two tests

@@ -19,7 +19,7 @@ def safe_code(error):
 
 
 class Worker:
-    def __init__(self, store, service_factory, *, lease_seconds=30, heartbeat_interval=None):
+    def __init__(self, store, service_factory, *, lease_seconds=30, heartbeat_interval=None, research_factory=None):
         if type(lease_seconds) is not int or not 5 <= lease_seconds <= 300:
             raise ValueError('Worker lease must be 5 to 300 seconds')
         interval = heartbeat_interval if heartbeat_interval is not None else lease_seconds / 3
@@ -30,6 +30,8 @@ class Worker:
         self.worker_id = str(uuid.uuid4())
         self.lease_seconds, self.interval = lease_seconds, interval
         self._service = None
+        self._research = None
+        self.research_factory = research_factory
         self.stop = threading.Event()
         self.last_outcome = None
         self._last_emitted = None
@@ -41,6 +43,13 @@ class Worker:
             self._service.jobs = self.jobs
             self._service.generations.jobs = self.jobs
         return self._service
+
+    def research(self):
+        if self._research is None:
+            from .research.service import ResearchService
+            self._research = (self.research_factory(self.store, self.jobs) if self.research_factory
+                              else ResearchService(self.store, jobs=self.jobs))
+        return self._research
 
     @contextmanager
     def heartbeat(self, job):
@@ -69,6 +78,7 @@ class Worker:
                 outcome['state'] = 'stopped'
 
     def recover(self):
+        self.research().recover()
         blobs = self.store.reconcile_blobs()
         # Blob-only deletion does not need a healthy Chroma/model service.
         for ticket in self.store.pending_cleanup():
@@ -119,9 +129,12 @@ class Worker:
         if job:
             try:
                 with self.heartbeat(job) as heartbeat:
-                    if job.kind != 'index':
-                        raise EvidenceError('HANDLER_UNAVAILABLE', 'This worker currently handles only local indexing', 503)
-                    self.service().run_index(job.id, self.worker_id, job.fence)
+                    if job.kind == 'index':
+                        self.service().run_index(job.id, self.worker_id, job.fence)
+                    elif job.kind == 'research':
+                        self.research().run_research(job.id, self.worker_id, job.fence)
+                    else:
+                        raise EvidenceError('HANDLER_UNAVAILABLE', 'No handler is available for this job', 503)
             except Exception as exc:
                 try:
                     self.jobs.finish(job.id, self.worker_id, job.fence, 'failed')

@@ -83,6 +83,18 @@ class Store:
                     device INTEGER NOT NULL, inode INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS upload_intents(id TEXT PRIMARY KEY,
                     owner TEXT NOT NULL, state TEXT NOT NULL, blob_sha256 TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS research_intents(id TEXT PRIMARY KEY,
+                    owner TEXT NOT NULL, application_id TEXT NOT NULL, job_id TEXT NOT NULL,
+                    fence INTEGER NOT NULL, run_id TEXT, state TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS research_blob_scopes(id TEXT PRIMARY KEY,
+                    owner TEXT NOT NULL, application_id TEXT NOT NULL, run_id TEXT NOT NULL,
+                    intent_id TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS research_blob_origins(id TEXT PRIMARY KEY,
+                    owner TEXT NOT NULL, application_id TEXT NOT NULL, run_id TEXT NOT NULL,
+                    intent_id TEXT NOT NULL, job_id TEXT NOT NULL, fence INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS research_heads(application_id TEXT PRIMARY KEY,
+                    owner TEXT NOT NULL, run_id TEXT NOT NULL, research INTEGER NOT NULL,
+                    output INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS tickets(id TEXT PRIMARY KEY, data TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS tombstones(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
                     kind TEXT NOT NULL);
@@ -121,13 +133,77 @@ class Store:
             finally:
                 fcntl.flock(handle, fcntl.LOCK_UN)
 
+    def _blob_kind(self, db, source_id, *, allow_unproven=False):
+        """Resolve typed ownership against the original registration, never a live lease.
+
+        allow_unproven permits revocation/ticket capture only, not byte removal.
+        Missing historical proof is deliberately not backfilled from current state.
+        """
+        scope = db.execute('SELECT owner,application_id,run_id,intent_id FROM research_blob_scopes WHERE id=?',
+                           (source_id,)).fetchone()
+        origin = db.execute('SELECT owner,application_id,run_id,intent_id,job_id,fence FROM research_blob_origins WHERE id=?',
+                            (source_id,)).fetchone()
+        employer = db.execute("SELECT owner,data FROM records WHERE id=? AND kind='workspace:employer_source'",
+                              (source_id,)).fetchone()
+        tombstone = db.execute('SELECT kind FROM tombstones WHERE id=?', (source_id,)).fetchone()
+        if not (scope or origin or employer or tombstone == ('workspace:employer_source',)):
+            return 'source'
+        valid = bool(scope and origin and scope == origin[:4])
+        if valid:
+            intent = db.execute('SELECT owner,application_id,run_id,job_id,fence FROM research_intents WHERE id=?',
+                                (origin[3],)).fetchone()
+            valid = intent == (*origin[:3], origin[4], origin[5])
+        if valid:
+            row = db.execute('SELECT owner,data FROM jobs WHERE id=?', (origin[4],)).fetchone()
+            try:
+                job = json.loads(row[1]) if row else {}
+                valid = bool(row and row[0] == origin[0] and job.get('id') == origin[4]
+                             and job.get('profile_id') == origin[0] and job.get('application_id') == origin[1]
+                             and job.get('kind') == 'research' and type(origin[5]) is int and origin[5] > 0
+                             and type(job.get('fence')) is int and job['fence'] >= origin[5])
+            except (ValueError, TypeError):
+                valid = False
+        if valid:
+            upload = db.execute('SELECT owner FROM upload_intents WHERE id=?', (source_id,)).fetchone()
+            valid = upload == (origin[0],)
+        if valid and employer:
+            source = json.loads(employer[1])
+            valid = (employer[0], source.get('application_id'), source.get('research_run_id')) == origin[:3]
+        if not valid and not allow_unproven:
+            fail('CLEANUP_PENDING', 'Original research blob ownership remains unproven', 503)
+        return 'workspace:employer_source'
+
+    def _blob_owner(self, db, source_id):
+        return db.execute('SELECT owner FROM records WHERE id=? AND kind=?',
+                          (source_id, self._blob_kind(db, source_id))).fetchone()
+
+    def forget_research(self, db, owner, application_id=None):
+        """Capture exact blob obligations before deleting canonical research records."""
+        clause = 'owner=?' + (' AND application_id=?' if application_id else '')
+        args = (owner, application_id) if application_id else (owner,)
+        ids = {r[0] for r in db.execute('SELECT id FROM research_blob_scopes WHERE ' + clause, args)}
+        ids.update(r[0] for r in db.execute('SELECT id FROM research_blob_origins WHERE ' + clause, args))
+        ids.update(r[0] for r in db.execute(
+            "SELECT id FROM records WHERE owner=? AND kind='workspace:employer_source'"
+            + (" AND json_extract(data,'$.application_id')=?" if application_id else ''), args))
+        ids = sorted(ids)
+        for sid in ids:
+            db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)', (sid, owner, self._blob_kind(db, sid, allow_unproven=True)))
+            db.execute("UPDATE upload_intents SET state='cleanup_pending' WHERE id=? AND state!='not_owned'", (sid,))
+        db.execute("UPDATE research_intents SET state='cleanup_pending' WHERE " + clause, args)
+        db.execute('DELETE FROM research_heads WHERE ' + clause, args)
+        if ids:
+            ticket = CleanupTicket(str(uuid.uuid4()), owner, [], ids, [])
+            db.execute('INSERT INTO tickets VALUES(?,?)', (ticket.id, json.dumps(asdict(ticket))))
+        return bool(ids)
+
     def cleanup_upload(self, source_id):
         """Only a registered abandoned upload or exact source tombstone grants deletion."""
         with self._upload_lock(source_id):
             with self._tx() as db:
                 intent = db.execute('SELECT owner,state FROM upload_intents WHERE id=?', (source_id,)).fetchone()
                 receipt = db.execute('SELECT device,inode FROM upload_receipts WHERE id=?', (source_id,)).fetchone()
-                source = db.execute("SELECT owner FROM records WHERE id=? AND kind='source'", (source_id,)).fetchone()
+                source = self._blob_owner(db, source_id)
                 if source:
                     return False
                 tombstone = db.execute('SELECT owner,kind FROM tombstones WHERE id=?', (source_id,)).fetchone()
@@ -136,10 +212,10 @@ class Store:
                         return True  # Exclusive creation failed: never adopt those bytes.
                     if receipt is None:
                         fail('CLEANUP_PENDING', 'Upload file ownership remains unproven', 503)
-                    if intent[1] == 'committed' and tombstone != (intent[0], 'source'):
+                    if intent[1] == 'committed' and tombstone != (intent[0], self._blob_kind(db, source_id)):
                         fail('CLEANUP_PENDING', 'Upload ownership graph needs reconciliation', 503)
                     db.execute("UPDATE upload_intents SET state='cleanup_pending' WHERE id=?", (source_id,))
-                elif not tombstone or tombstone[1] != 'source':
+                elif not tombstone or tombstone[1] != self._blob_kind(db, source_id):
                     fail('CLEANUP_PENDING', 'Blob deletion authority is unavailable', 503)
             path = self._blob(source_id)
             try:
@@ -162,9 +238,21 @@ class Store:
             fail('CLEANUP_PENDING', 'Blob path ownership is unsafe', 503)
         with self._read() as db:
             intents = db.execute('SELECT id,state FROM upload_intents').fetchall()
-            sources = {r[0] for r in db.execute("SELECT id FROM records WHERE kind='source'")}
-        active = pending = 0
+            sources, unproven = set(), set()
+            candidates = {r[0] for r in db.execute("SELECT id FROM records WHERE kind IN ('source','workspace:employer_source')")}
+            candidates.update(row[0] for row in intents)
+            for source_id in candidates:
+                try:
+                    if self._blob_owner(db, source_id):
+                        sources.add(source_id)
+                except EvidenceError as exc:
+                    if exc.code != 'CLEANUP_PENDING':
+                        raise
+                    unproven.add(source_id)
+        active, pending = 0, len(unproven)
         for source_id, state in intents:
+            if source_id in unproven:
+                continue
             if state == 'not_owned' or state == 'cleaned' and not self._blob(source_id).exists():
                 continue
             if state == 'committed' and source_id in sources:
@@ -651,6 +739,8 @@ class Store:
             self._profile(db, owner)
             workspace_before = self._workspace_state(db, owner)
             metadata_before = self._metadata_revision(db, owner)
+            if profile:
+                self.forget_research(db, owner)
             if source_id:
                 self._record(db, owner, source_id, 'source')
             if fact_id:
@@ -676,7 +766,7 @@ class Store:
                 if profile or upload_id == source_id:
                     if upload_id not in sources:
                         sources.append(upload_id)
-                    db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)', (upload_id, owner, 'source'))
+                    db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)', (upload_id, owner, self._blob_kind(db, upload_id, allow_unproven=True)))
                     if state != 'not_owned':
                         db.execute("UPDATE upload_intents SET state='cleanup_pending' WHERE id=?", (upload_id,))
             affected = {'facts', 'documents'} if profile else ({'documents'} if source_id else {'facts'})
@@ -802,7 +892,7 @@ class Store:
             if ticket.state == 'complete':
                 return
             for sid in ticket.source_ids:
-                if db.execute('SELECT owner,kind FROM tombstones WHERE id=?', (sid,)).fetchone() != (ticket.profile_id, 'source'):
+                if db.execute('SELECT owner,kind FROM tombstones WHERE id=?', (sid,)).fetchone() != (ticket.profile_id, self._blob_kind(db, sid)):
                     fail('CLEANUP_PENDING', 'Source cleanup authority is unavailable', 503)
         for source_id in ticket.source_ids:
             if not self.cleanup_upload(source_id):
@@ -813,7 +903,7 @@ class Store:
                     fail('CLEANUP_PENDING', 'Canonical cleanup remains pending', 503)
             for row in db.execute('SELECT kind,data FROM records WHERE owner=?', (ticket.profile_id,)):
                 obj = json.loads(row[1])
-                if ((row[0] == 'unit' and obj['source_id'] in ticket.source_ids)
+                if ((row[0] in ('unit', 'workspace:employer_unit') and obj['source_id'] in ticket.source_ids)
                         or (row[0].startswith('chunk:') and obj['record_id'] in ticket.source_ids + ticket.fact_ids)):
                     fail('CLEANUP_PENDING', 'Canonical derivatives remain pending', 503)
             for gid in ticket.generation_ids:

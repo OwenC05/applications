@@ -116,7 +116,7 @@ Frozen route groups (data routes implemented in S1; later capabilities remain ga
 - `POST /profiles/{id}/applications`: ApplicationRecord input fields, server IDs,
   revision/time. `PATCH .../applications/{application_id}`: validated input edits
   with expected input revision. Stale concurrent writes return409.
-- S2 job routes are described below. Later slices add research/draft/review/form/grant/submission routes against
+- Job and static-research routes are described below. Later slices add draft/review/form/grant/submission routes against
   frozen models; their exact HTTP shapes are committed before each consuming UI
   slice. A model/grant supplied by a client never establishes stored permission.
 
@@ -233,7 +233,7 @@ or Chroma merely to enqueue, read or cancel a job.
 
 Summaries expose job ID/owner/application/kind/state, bounded stage, captured
 revisions, fence/attempt count, cancellation flag, heartbeat/lease and generation
-cleanup-pending flag. Only the `index` handler is available. Workspace capability
+cleanup-pending flag. The `index` and static `research` handlers are available. Workspace capability
 flags do not imply researched-drafting or browser readiness.
 
 `GET /api/evidence/status` reports `model_readiness:"not_checked_in_request"`;
@@ -263,13 +263,41 @@ the recorded completed write envelope. Cleanup is exact-generation and anchored-
 path scoped; unknown artifacts are preserved. Worker/upload integration does not
 turn logical deletion into a qualified forensic deletion guarantee.
 
-### Standalone static research broker — no HTTP route yet
+### Durable static research — bounded preview, not general discovery
+
+Base: `/api/workspace/profiles/{id}/applications/{application_id}/research`.
+The same boot token, owned application lookup and strict JSON rules apply.
+
+| Route relative to base | Input / result |
+| --- | --- |
+| `POST /` | `{schema_version:1,idempotency_key,expected_input_revision,expected_output_revision,supporting_urls?:[...]}`; `202` with `{schema_version:1,job}`. At most four supporting URLs. |
+| `GET /` | `{schema_version:1,current_run_id,runs}`; immutable history and current head, not a fallback to an older complete run. |
+| `GET /{run_id}` | `{schema_version:1,run,eligibility:{eligible},sources}`; current-head/input/research-counter/freshness checks remain separate from historical run state. |
+| `GET /{run_id}/sources/{source_id}` | `{schema_version:1,source,unit,identity_spans}`; canonical text, provenance hashes and Unicode code-point identity spans. |
+| `GET /{run_id}/sources/{source_id}/original` | Hash-verified original bytes as a no-store, nosniff attachment, not executable source HTML. |
+
+Repeat the exact original owned POST/key to retrieve its existing job, including
+after successful publication advances output/research revisions. Changed request
+data under that key conflicts. A new request must use current input/output
+revisions. Poll/cancel through the profile job routes above. No model or Chroma
+initialization is needed to acquire, inspect or delete static research.
+
+The worker registers the attempt before acquisition and each original blob before
+writing. All source producer locks remain held through the final fenced SQLite
+publication of immutable runs, source metadata, canonical units and resulting
+research/output heads. Failed or cancelled producers cannot publish later.
+Application/profile deletion revokes access and captures exact employer-blob
+cleanup obligations without adding employer text to personal evidence indexes.
+Destructive cleanup validates the original owner/application/run/intent/job/fence
+registration and device/inode receipt, not the current lease. Missing historical
+proof stays pending; recovery never invents ownership or silently adopts old blobs.
+Remaining source-linked employer text also prevents a cleanup-complete receipt.
 
 `copilot.research.broker.research` accepts validated, server-captured non-personal
 `ResearchInput` fields and a mandatory current-authority callback. It anonymously
 acquires only explicit company/vacancy/supporting URLs on exact confirmed hosts.
-Original bytes, canonical text/hashes and Unicode identity spans are returned as
-capsules; they are not automatically stored, indexed or treated as instructions.
+Original bytes, canonical text/hashes and Unicode identity spans are persisted
+by the fenced handler; they are not indexed or treated as instructions.
 Private facts, typed values, cookies and user-pasted JD are not input channels.
 
 The initial adapter requires unique exact `Company:`, `Employer:`, `Role:`,
@@ -286,6 +314,7 @@ socket-buffer traffic; it is not a whole-network byte measurement.
 
 Authority is checked before/after acquisitions and before return. In-flight
 anonymous GETs cannot be recalled; accepting/publishing results still requires
-the caller's stored current job/fence/revision checks. No research job handler,
-research HTTP endpoint, discovery agent, renderer or persistence integration is
-enabled by this component.
+the stored current job/fence/revision checks. There is no discovery/search agent,
+renderer, general ATS identity adapter, employer index or application drafting
+integration yet. This static preview does not complete S3 or enable tailored
+answer generation. Unsupported layouts remain visibly incomplete.

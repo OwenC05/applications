@@ -5,6 +5,7 @@ storage; API summaries and errors contain no applicant/provider content.
 """
 import hashlib
 import json
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 
 from .contracts import EvidenceError
@@ -80,7 +81,7 @@ class Jobs:
                                                       'research': row[0] if row else 0})
         return revisions
 
-    def enqueue(self, owner, kind, parameters, idempotency_key, application_id=None):
+    def enqueue(self, owner, kind, parameters, idempotency_key, application_id=None, *, transaction=None, request_hash=None):
         if kind not in ('index', 'research', 'draft', 'assess', 'cleanup'):
             error('INVALID_INPUT', 'Unknown job kind', 422)
         if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 200:
@@ -99,9 +100,9 @@ class Jobs:
                                                        'application_input', 'application_output', 'research'))
         else:
             dependencies = ('facts', 'documents')
-        with self.store._tx() as db:
+        with nullcontext(transaction) if transaction is not None else self.store._tx() as db:
             revisions = self.capture(db, owner, application_id)
-            request_hash = c.canonical_hash({'kind': kind, 'parameters': parameters,
+            request_hash = request_hash or c.canonical_hash({'kind': kind, 'parameters': parameters,
                                              'application_id': application_id,
                                              'revisions': {k: getattr(revisions, k) for k in dependencies}})
             old = db.execute('SELECT job_id,request_sha256 FROM job_keys WHERE owner=? AND key=?',
