@@ -55,6 +55,7 @@ class LocalModels:
     def __init__(self, directory: Path):
         self.directory = directory
         self._loaded = False
+        self._loaded_fingerprint = None
         self._initialization_lock = threading.Lock()
         self._initialization = None
 
@@ -80,12 +81,17 @@ class LocalModels:
 
     @property
     def fingerprint(self):
-        return hashlib.sha256(json.dumps(self._verified(), sort_keys=True).encode()).hexdigest()
+        fingerprint = hashlib.sha256(json.dumps(self._verified(), sort_keys=True).encode()).hexdigest()
+        with self._initialization_lock:
+            if self._loaded and self._loaded_fingerprint != fingerprint:
+                raise EvidenceError('MODEL_NOT_READY',
+                    'Verified model bundle changed; recreate the model service before use', 503)
+        return fingerprint
 
     @property
     def ready(self):
         try:
-            self._verified()
+            _ = self.fingerprint
             return True
         except EvidenceError:
             return False
@@ -104,7 +110,7 @@ class LocalModels:
             future.result()
             return
         try:
-            self._verified()
+            fingerprint = self.fingerprint
             directory = self.directory
             import torch
             torch.set_num_threads(2)
@@ -119,9 +125,12 @@ class LocalModels:
                 local_files_only=True, trust_remote_code=False, model_kwargs={'use_safetensors': True})
             if embedding.get_sentence_embedding_dimension() != 384:
                 raise EvidenceError('MODEL_NOT_READY', 'Unexpected embedding dimension', 503)
+            if self.fingerprint != fingerprint:
+                raise EvidenceError('MODEL_NOT_READY', 'Verified model bundle changed during initialization', 503)
             # Publish all references together only after every constructor validates.
             with self._initialization_lock:
                 self.tokenizer, self.embedding, self.cross = tokenizer, embedding, cross
+                self._loaded_fingerprint = fingerprint
                 self._loaded = True
             future.set_result(None)
         except BaseException as exc:

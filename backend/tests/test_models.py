@@ -116,3 +116,55 @@ def test_cold_model_initialization_is_single_flight_and_publishes_no_partial_sta
         assert model._loaded
     else:
         assert model._loaded and results == [None] * 6
+
+
+@pytest.mark.parametrize('changed_during_initialization', [False, True])
+def test_loaded_bundle_cannot_be_relabelled_by_changed_verified_files(tmp_path, monkeypatch, changed_during_initialization):
+    import sys
+    from types import SimpleNamespace
+
+    bundle = {'version': 'first'}
+
+    class Tokenizer:
+        @staticmethod
+        def from_pretrained(*_args, **_kwargs):
+            return object()
+
+    class Embedding:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def get_sentence_embedding_dimension(self):
+            return 384
+
+    class Cross:
+        def __init__(self, *_args, **_kwargs):
+            if changed_during_initialization:
+                bundle['version'] = 'second'
+
+    monkeypatch.setitem(sys.modules, 'torch', SimpleNamespace(set_num_threads=lambda _: None))
+    monkeypatch.setitem(sys.modules, 'sentence_transformers', SimpleNamespace(SentenceTransformer=Embedding, CrossEncoder=Cross))
+    monkeypatch.setitem(sys.modules, 'transformers', SimpleNamespace(AutoTokenizer=Tokenizer))
+    model = LocalModels(tmp_path)
+    monkeypatch.setattr(model, '_verified', lambda: dict(bundle))
+    first = model.fingerprint
+    if changed_during_initialization:
+        with pytest.raises(EvidenceError) as caught:
+            model._ensure()
+        assert caught.value.code == 'MODEL_NOT_READY'
+        assert not model._loaded and not hasattr(model, 'embedding')
+        return
+
+    model._ensure()
+    assert model.fingerprint == first and model.ready
+    bundle['version'] = 'second'
+    with pytest.raises(EvidenceError) as caught:
+        _ = model.fingerprint
+    assert caught.value.code == 'MODEL_NOT_READY'
+    assert not model.ready
+    # Explicitly recreate the service/model instance; never silently relabel the
+    # memory-resident first bundle with the second bundle's metadata.
+    recreated = LocalModels(tmp_path)
+    monkeypatch.setattr(recreated, '_verified', lambda: dict(bundle))
+    recreated._ensure()
+    assert recreated.ready and recreated.fingerprint != first
