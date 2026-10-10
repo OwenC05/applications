@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-Corpus = Literal["facts", "documents"]
+Corpus = Literal["facts", "documents", "employer"]
 
 
 class EvidenceError(Exception):
@@ -128,3 +128,80 @@ class CleanupTicket:
     source_ids: list[str]
     fact_ids: list[str]
     state: str = "pending"
+
+
+# Scoped projections deliberately leave every personal positional constructor intact.
+@dataclass(frozen=True, kw_only=True)
+class EmployerUnit(Unit):
+    application_id: str
+    research_run_id: str
+
+    def __post_init__(self):
+        _validate_employer_projection(self)
+
+
+@dataclass(frozen=True, kw_only=True)
+class EmployerChunk(Chunk):
+    application_id: str
+    research_run_id: str
+
+    def __post_init__(self):
+        _validate_employer_projection(self)
+
+
+@dataclass(frozen=True, kw_only=True)
+class EmployerSnapshot(Snapshot):
+    application_id: str
+    research_run_id: str
+
+    def __post_init__(self):
+        _validate_employer_projection(self)
+
+
+@dataclass(frozen=True, kw_only=True)
+class EmployerManifest(Manifest):
+    application_id: str
+    research_run_id: str
+
+    def __post_init__(self):
+        _validate_employer_projection(self)
+
+
+@dataclass(frozen=True, kw_only=True)
+class EmployerCitation(Citation):
+    application_id: str
+    research_run_id: str
+
+    def __post_init__(self):
+        _validate_employer_projection(self)
+
+
+def _validate_employer_projection(value):
+    from .retrieval.packet_contracts import CorpusScope
+    if getattr(value, 'corpus', 'employer') != 'employer':
+        raise ValueError('Employer projection requires employer corpus')
+    CorpusScope(profile_id=value.profile_id, corpus='employer',
+                application_id=value.application_id, research_run_id=value.research_run_id)
+
+
+def decode_manifest(value):
+    """Discriminate before construction: employer never uses a personal fallback."""
+    if value.get('corpus') == 'employer':
+        from .retrieval.packet_contracts import CorpusScope
+        CorpusScope(profile_id=value['profile_id'], corpus='employer',
+                    application_id=value.get('application_id'), research_run_id=value.get('research_run_id'))
+        return EmployerManifest(**value)
+    if value.get('corpus') not in ('facts', 'documents'):
+        raise ValueError('Unknown manifest corpus')
+    return Manifest(**value)
+
+
+def decode_chunk(value):
+    if value.get('corpus') == 'employer':
+        from .retrieval.packet_contracts import CorpusScope
+        CorpusScope(profile_id=value['profile_id'], corpus='employer',
+                    application_id=value.get('application_id'), research_run_id=value.get('research_run_id'))
+        return EmployerChunk(**value)
+    if value.get('corpus') not in ('facts', 'documents'):
+        raise ValueError('Unknown chunk corpus')
+    return Chunk(**value)

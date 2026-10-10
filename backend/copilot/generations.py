@@ -6,9 +6,10 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import asdict
 
-from .contracts import EvidenceError, Manifest
+from .contracts import EmployerManifest, EvidenceError, Manifest
 from .domain.contracts import GenerationIntent, canonical_hash
 from .jobs import Jobs
+from .retrieval.packet_contracts import CorpusScope
 from .store import identifier
 
 
@@ -53,16 +54,46 @@ class Generations:
         db.execute('UPDATE generation_intents SET state=?,data=? WHERE id=?',
                    (intent.state, intent.model_dump_json(), intent.generation_id))
 
+    @staticmethod
+    def scope(intent):
+        return CorpusScope(profile_id=intent.profile_id, corpus=intent.corpus,
+                           application_id=intent.application_id, research_run_id=intent.research_run_id)
+
+    @staticmethod
+    def job_scope(job, parameters):
+        return CorpusScope(profile_id=job.profile_id, corpus=parameters['corpus'],
+                           application_id=job.application_id,
+                           research_run_id=parameters.get('research_run_id'))
+
+    @staticmethod
+    def revision(intent):
+        return intent.revisions.research if intent.corpus == 'employer' else getattr(intent.revisions, intent.corpus)
+
+    def _capture_current(self, db, intent):
+        scope = self.scope(intent)
+        revision, values = self.store.capture_scoped_sources(db, scope, self.jobs._now())
+        if revision != self.revision(intent) or canonical_hash(values) != intent.snapshot_sha256:
+            raise EvidenceError('CONFLICT', 'Generation canonical capture changed', 409)
+        return values
+
     def register(self, job_id, worker_id, fence, generation_id, fingerprint, chunker_version):
         identifier(generation_id)
-        with self.store._tx() as db:
+        with self.store._read() as db:
             job, parameters = self.jobs.assert_current(db, job_id, worker_id, fence)
             if job.kind != 'index':
                 raise EvidenceError('INVALID_INPUT', 'Index job required', 422)
-            corpus = parameters['corpus']
-            _, values = self.store.capture_sources(db, job.profile_id, corpus)
+            scope = self.job_scope(job, parameters)
+            revision, values = self.store.capture_scoped_sources(db, scope, self.jobs._now())
+        self.store.verify_scoped_sources(scope, values)
+        with self.store._tx() as db:
+            job, parameters = self.jobs.assert_current(db, job_id, worker_id, fence)
+            current_revision, current_values = self.store.capture_scoped_sources(db, scope, self.jobs._now())
+            if revision != current_revision or current_values != values:
+                raise EvidenceError('CONFLICT', 'Canonical sources changed during original verification', 409)
+            corpus = scope.corpus
             intent = GenerationIntent(profile_id=job.profile_id, generation_id=generation_id,
-                corpus=corpus, job_id=job.id, fence=fence, lease_expires_at=job.lease_expires_at,
+                corpus=corpus, application_id=scope.application_id, research_run_id=scope.research_run_id,
+                job_id=job.id, fence=fence, lease_expires_at=job.lease_expires_at,
                 revisions=job.revisions, snapshot_sha256=canonical_hash(values),
                 model_fingerprint=fingerprint, chunker_version=chunker_version,
                 dense_collection='evidence_' + generation_id.replace('-', ''),
@@ -77,8 +108,9 @@ class Generations:
             intent, _ = self._load(db, generation_id)
             job, _ = self.jobs.assert_current(db, intent.job_id, worker_id, fence)
             if (intent.fence != fence or intent.state not in ('registered', 'building', 'ready')
-                    or not intent.revisions.matches(job.revisions, (intent.corpus,))):
+                    or not intent.revisions.matches(job.revisions, self.store.scope_dependencies(self.scope(intent)))):
                 raise EvidenceError('CONFLICT', 'Generation authority is no longer current', 409)
+            self._capture_current(db, intent)
             if state:
                 intent = intent.model_copy(update={'state': state, 'lease_expires_at': job.lease_expires_at})
                 self._save(db, intent)
@@ -93,9 +125,12 @@ class Generations:
             values = json.loads(captured)
             if canonical_hash(values) != intent.snapshot_sha256:
                 raise EvidenceError('CONFLICT', 'Generation capture mismatch', 409)
-            revision = getattr(intent.revisions, intent.corpus)
+            revision = self.revision(intent)
             if (snapshot.profile_id, snapshot.corpus, snapshot.revision) != (intent.profile_id, intent.corpus, revision):
                 raise EvidenceError('CONFLICT', 'Generation snapshot scope mismatch', 409)
+            if intent.corpus == 'employer' and (getattr(snapshot, 'application_id', None), getattr(snapshot, 'research_run_id', None)) != (intent.application_id, intent.research_run_id):
+                raise EvidenceError('CONFLICT', 'Generation snapshot application/run mismatch', 409)
+            self._capture_current(db, intent)
             # Validate slices against the immutable capture without invoking a tokenizer.
             def selected(record):
                 return [c for c in snapshot.chunks if (c.record_id == record.id if intent.corpus == 'facts' else c.unit_id == record.id)]
@@ -145,13 +180,20 @@ class Generations:
             return row is None or row[0] in ('inflight', 'indeterminate')
 
     def publish(self, generation_id, worker_id, fence, manifest):
+        with self.store._read() as db:
+            captured_intent, _ = self._load(db, generation_id)
+            values = self._capture_current(db, captured_intent)
+        self.store.verify_scoped_sources(self.scope(captured_intent), values)
         self.guard(generation_id, worker_id, fence, 'ready')
         def commit(db, job, _result):
             intent, _ = self._load(db, generation_id)
-            expected = Manifest(generation_id, intent.profile_id, intent.corpus,
-                getattr(intent.revisions, intent.corpus), intent.model_fingerprint,
+            projection = EmployerManifest if intent.corpus == 'employer' else Manifest
+            scoped = dict(application_id=intent.application_id, research_run_id=intent.research_run_id) if intent.corpus == 'employer' else {}
+            self._capture_current(db, intent)
+            expected = projection(generation_id, intent.profile_id, intent.corpus,
+                self.revision(intent), intent.model_fingerprint,
                 intent.chunker_version, manifest.chunk_ids_sha256, manifest.chunk_count,
-                intent.dense_collection, intent.sparse_relpath)
+                intent.dense_collection, intent.sparse_relpath, **scoped)
             if intent.fence != fence or manifest != expected:
                 raise EvidenceError('CONFLICT', 'Generation manifest scope mismatch', 409)
             self.store.publish_manifest(manifest, expected.revision, transaction=db,

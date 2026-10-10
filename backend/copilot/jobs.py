@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from .contracts import EvidenceError
 from .domain import contracts as c
 from .domain.repository import DomainRepository, uid
+from .retrieval.packet_contracts import CorpusScope
 from .store import identifier
 
 
@@ -94,9 +95,19 @@ class Jobs:
         if not isinstance(parameters, dict) or len(encode(parameters).encode()) > 131072:
             error('INVALID_INPUT', 'Job parameters exceed bounds', 422)
         if kind == 'index':
-            if set(parameters) != {'corpus'} or parameters['corpus'] not in ('facts', 'documents') or application_id:
-                error('INVALID_INPUT', 'Index requires an explicitly selected profile corpus', 422)
-            dependencies = (parameters['corpus'],)
+            if parameters.get('corpus') == 'employer':
+                if set(parameters) != {'corpus', 'research_run_id'} or not application_id:
+                    error('INVALID_INPUT', 'Employer index requires exact application and research run', 422)
+                try:
+                    scope = CorpusScope(profile_id=owner, corpus='employer', application_id=application_id,
+                                        research_run_id=parameters['research_run_id'])
+                except ValueError:
+                    error('INVALID_INPUT', 'Invalid employer index scope', 422)
+                dependencies = self.store.scope_dependencies(scope)
+            else:
+                if set(parameters) != {'corpus'} or parameters['corpus'] not in ('facts', 'documents') or application_id:
+                    error('INVALID_INPUT', 'Index requires an explicitly selected profile corpus', 422)
+                dependencies = (parameters['corpus'],)
         elif kind in ('research', 'draft', 'assess'):
             if not application_id:
                 error('INVALID_INPUT', 'Application scope required', 422)
@@ -116,6 +127,8 @@ class Jobs:
                 if old[1] != request_hash:
                     error('CONFLICT', 'Idempotency key belongs to different captured inputs')
                 return self._job(db, old[0], owner)[0]
+            if kind == 'index' and parameters['corpus'] == 'employer':
+                self.store.require_current_research(db, scope, self._now())
             job = c.DurableJob(id=uid(), profile_id=owner, application_id=application_id,
                                kind=kind, stage='queued', idempotency_key=idempotency_key,
                                state='queued', revisions=revisions, fence=0)
@@ -228,6 +241,10 @@ class Jobs:
         current = self.capture(db, job.profile_id, job.application_id)
         if not job.revisions.matches(current, dependencies):
             error('CONFLICT', 'Job captured inputs changed')
+        if job.kind == 'index' and parameters['corpus'] == 'employer':
+            scope = CorpusScope(profile_id=job.profile_id, corpus='employer', application_id=job.application_id,
+                                research_run_id=parameters['research_run_id'])
+            self.store.require_current_research(db, scope, self._now())
         return job, parameters
 
     def heartbeat(self, job_id, worker_id, fence, lease_seconds=60):

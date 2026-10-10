@@ -6,7 +6,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-from copilot.contracts import Chunk, EvidenceError, Fact, Hit, Manifest
+from copilot.contracts import Chunk, EvidenceError, Fact, Hit, Manifest, decode_manifest
 from copilot.generations import Generations, new_generation
 from copilot.jobs import Jobs
 from copilot.retrieval import sparse
@@ -130,9 +130,14 @@ class EvidenceService:
                                  (generation_id, intent.profile_id)).fetchone()
                 profile = db.execute('SELECT 1 FROM profiles WHERE id=?', (intent.profile_id,)).fetchone()
                 if row and row[0] == 'active' and profile:
-                    revision = self.store._corpus_revision(db, intent.profile_id, intent.corpus)
-                    if revision == getattr(intent.revisions, intent.corpus):
-                        return False
+                    try:
+                        revision = self.store.scope_revision(db, self.generations.scope(intent), self.jobs._now())
+                    except EvidenceError as exc:
+                        if exc.code not in ('CONFLICT', 'NOT_FOUND'):
+                            raise
+                    else:
+                        if revision == self.generations.revision(intent):
+                            return False
             if self.generations.live(intent):
                 return False
             directory = self._generation_path(intent)
@@ -276,6 +281,8 @@ class EvidenceService:
         for manifest in self.store.cleanup_manifests(ticket):
             if manifest.generation_id in intents:
                 continue
+            if manifest.corpus == 'employer':
+                raise EvidenceError('CLEANUP_PENDING', 'Employer generation registration is unavailable', 503)
             expected_name = 'evidence_' + manifest.generation_id.replace('-', '')
             relative = Path(manifest.sparse_relpath)
             expected_path = Path(ticket.profile_id) / manifest.generation_id
@@ -318,7 +325,7 @@ class EvidenceService:
                 pending += 1
         # Unknown/unregistered artifacts have no proven deletion authority.
         with self.store._tx() as db:
-            manifests = [Manifest(**json.loads(row[0])) for row in db.execute('SELECT data FROM manifests')]
+            manifests = [decode_manifest(json.loads(row[0])) for row in db.execute('SELECT data FROM manifests')]
         known_names = {i.dense_collection for i in intents} | {m.dense_collection for m in manifests}
         known_paths = {i.sparse_relpath for i in intents} | {m.sparse_relpath for m in manifests}
         unknown_names = sum(name.startswith('evidence_') and name not in known_names for name in self.dense.names())

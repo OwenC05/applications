@@ -13,14 +13,17 @@ from .contracts import (
     Chunk,
     Citation,
     CleanupTicket,
+    EmployerSnapshot,
+    EmployerUnit,
     EvidenceError,
     Fact,
-    Manifest,
     Profile,
     Snapshot,
     Source,
     Span,
     Unit,
+    decode_chunk,
+    decode_manifest,
 )
 
 
@@ -105,13 +108,15 @@ class Store:
                 revision = json.loads(serialized)['revision']
                 db.execute('INSERT OR IGNORE INTO profile_revisions(owner,facts,documents) VALUES(?,?,?)',
                            (owner, revision, revision))
-        # Legacy published manifests prove a completed dual-index publication, not a
-        # fabricated producer lease. Unjournaled staging cannot prove no dispatch.
+        # Only legacy personal manifests predate mutation journals. Employer
+        # generations always require their original envelope receipt; a retained
+        # manifest must never reconstruct a missing acknowledgement on restart.
         with self._tx() as db:
             db.execute("""INSERT OR IGNORE INTO dense_mutations
                 SELECT g.id,json_extract(g.data,'$.fence'),
                 CASE WHEN EXISTS(SELECT 1 FROM manifests m WHERE m.id=g.id)
-                THEN 'acknowledged' ELSE 'indeterminate' END FROM generation_intents g""")
+                THEN 'acknowledged' ELSE 'indeterminate' END FROM generation_intents g
+                WHERE g.corpus IN ('facts','documents')""")
 
     @contextmanager
     def _upload_lock(self, source_id):
@@ -187,15 +192,29 @@ class Store:
             "SELECT id FROM records WHERE owner=? AND kind='workspace:employer_source'"
             + (" AND json_extract(data,'$.application_id')=?" if application_id else ''), args))
         ids = sorted(ids)
+        generation_clause = "owner=? AND corpus='employer'" + (" AND json_extract(data,'$.application_id')=?" if application_id else '')
+        generations = {r[0] for r in db.execute('SELECT id FROM generation_intents WHERE ' + generation_clause, args)}
+        generations.update(r[0] for r in db.execute('SELECT id FROM manifests WHERE ' + generation_clause, args))
+        generations = sorted(generations)
+        for gid in generations:
+            db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)', (gid, owner, 'employer_generation'))
+            row = db.execute('SELECT data FROM generation_intents WHERE id=? AND owner=?', (gid, owner)).fetchone()
+            if row:
+                value = json.loads(row[0])
+                value['state'] = 'cleanup_pending'
+                db.execute("UPDATE generation_intents SET state='cleanup_pending',data=?,captured=NULL WHERE id=? AND owner=?",
+                           (json.dumps(value), gid, owner))
+            db.execute('DELETE FROM generation_chunks WHERE generation_id=? AND owner=?', (gid, owner))
+            db.execute("UPDATE manifests SET state='retired' WHERE id=? AND owner=?", (gid, owner))
         for sid in ids:
             db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)', (sid, owner, self._blob_kind(db, sid, allow_unproven=True)))
             db.execute("UPDATE upload_intents SET state='cleanup_pending' WHERE id=? AND state!='not_owned'", (sid,))
         db.execute("UPDATE research_intents SET state='cleanup_pending' WHERE " + clause, args)
         db.execute('DELETE FROM research_heads WHERE ' + clause, args)
-        if ids:
-            ticket = CleanupTicket(str(uuid.uuid4()), owner, [], ids, [])
+        if ids or generations:
+            ticket = CleanupTicket(str(uuid.uuid4()), owner, generations, ids, [])
             db.execute('INSERT INTO tickets VALUES(?,?)', (ticket.id, json.dumps(asdict(ticket))))
-        return bool(ids)
+        return bool(ids or generations)
 
     def cleanup_upload(self, source_id):
         """Only a registered abandoned upload or exact source tombstone grants deletion."""
@@ -496,6 +515,225 @@ class Store:
                    (owner, p.revision, p.revision))
         return db.execute(f'SELECT {corpus} FROM profile_revisions WHERE owner=?', (owner,)).fetchone()[0]
 
+    @staticmethod
+    def scope_dependencies(scope):
+        return ('application_input', 'research') if scope.corpus == 'employer' else (scope.corpus,)
+
+    def require_current_research(self, db, scope, now):
+        try:
+            return self._current_research_graph(db, scope, now)
+        except (ValueError, TypeError, KeyError, AttributeError):
+            fail('CONFLICT', 'Research canonical graph is malformed', 409)
+
+    def _current_research_graph(self, db, scope, now):
+        """Transaction-only canonical eligibility; never reads files or instantiates services.
+
+        Original bytes are a separate bounded verification obligation returned by
+        capture_scoped_sources. Callers must verify outside the writer transaction,
+        then compare a fresh capture before using/publishing derived evidence.
+        """
+        from .domain import contracts as c
+        from .research.broker import MAX_CANONICAL_CODEPOINTS, MAX_SOURCES
+        from .retrieval.packet_contracts import CorpusScope
+        scope = CorpusScope.model_validate(scope)
+        if scope.corpus != 'employer':
+            fail('INVALID_INPUT', 'Employer research scope required', 422)
+        self._profile(db, scope.profile_id)
+        app = c.ApplicationRecord.model_validate_json(json.dumps(self._record(db, scope.profile_id, scope.application_id, 'workspace:application')))
+        run = c.ResearchRun.model_validate_json(json.dumps(self._record(db, scope.profile_id, scope.research_run_id, 'workspace:research_run')))
+        head = db.execute('SELECT run_id,research FROM research_heads WHERE owner=? AND application_id=?',
+                          (scope.profile_id, scope.application_id)).fetchone()
+        revision = db.execute('SELECT research FROM app_revisions WHERE owner=? AND application_id=?',
+                              (scope.profile_id, scope.application_id)).fetchone()
+        if (app.profile_id != scope.profile_id or app.application_id != scope.application_id
+                or (run.profile_id, run.application_id, run.id) != (scope.profile_id, scope.application_id, scope.research_run_id)
+                or not head or not revision or head != (run.id, revision[0])
+                or app.input_revision != run.revisions.application_input
+                or run.state != 'complete' or now >= run.expires_at):
+            fail('CONFLICT', 'Current complete unexpired research required', 409)
+        sources = {}
+        for sid, serialized in db.execute("SELECT id,data FROM records WHERE owner=? AND kind='workspace:employer_source' AND json_extract(data,'$.research_run_id')=? ORDER BY id", (scope.profile_id, run.id)):
+            source = c.EmployerSource.model_validate_json(serialized)
+            if ((source.id, source.profile_id, source.application_id, source.research_run_id)
+                    != (sid, scope.profile_id, scope.application_id, run.id)
+                    or source.provenance == 'legacy_model_text'):
+                fail('CONFLICT', 'Research source scope/provenance mismatch', 409)
+            sources[sid] = source
+        if not sources or len(sources) > MAX_SOURCES:
+            fail('CONFLICT', 'Research source graph is incomplete or exceeds bounds', 409)
+        for table in ('research_blob_scopes', 'research_blob_origins'):
+            registered = {row[0] for row in db.execute(f'SELECT id FROM {table} WHERE run_id=?', (run.id,))}
+            if registered != sources.keys():
+                fail('CONFLICT', 'Research source graph differs from original registrations', 409)
+        for ids, purpose in ((run.company_source_ids, 'company'), (run.exact_role_source_ids, 'exact_role')):
+            if not ids or len(set(ids)) != len(ids) or any(sid not in sources or sources[sid].purpose != purpose for sid in ids):
+                fail('CONFLICT', 'Research coverage does not match canonical sources', 409)
+        for source in sources.values():
+            if source.purpose == 'exact_role' and (source.role_state != 'open' or source.vacancy_id != app.vacancy_id):
+                fail('CONFLICT', 'Exact role is not current and open', 409)
+        units = {}
+        for unit_id, serialized in db.execute("SELECT id,data FROM records WHERE owner=? AND kind='workspace:employer_unit' AND json_extract(data,'$.research_run_id')=? ORDER BY id", (scope.profile_id, run.id)):
+            unit = json.loads(serialized)
+            sid = unit.get('source_id')
+            if (unit.get('id') != unit_id or unit.get('application_id') != scope.application_id
+                    or unit.get('research_run_id') != run.id or sid not in sources or sid in units
+                    or not isinstance(unit.get('text'), str) or not unit['text']
+                    or len(unit['text']) > MAX_CANONICAL_CODEPOINTS
+                    or digest(unit['text']) != unit.get('text_sha256')
+                    or unit['text_sha256'] != sources[sid].canonical_sha256):
+                fail('CONFLICT', 'Research canonical unit graph mismatch', 409)
+            spans = unit.get('identity_spans', [])
+            if sid in run.company_source_ids + run.exact_role_source_ids and not spans:
+                fail('CONFLICT', 'Research identity coverage is unavailable', 409)
+            for raw in spans:
+                span = c.SourceSpan.model_validate_json(json.dumps(raw))
+                if (span.record_id, span.unit_id) != (sid, unit_id):
+                    fail('CONFLICT', 'Research identity span scope mismatch', 409)
+                try:
+                    span.validate_text(unit['text'])
+                except ValueError:
+                    fail('CONFLICT', 'Research identity span integrity mismatch', 409)
+            units[sid] = unit
+        if units.keys() != sources.keys():
+            fail('CONFLICT', 'Research canonical source/unit graph is incomplete', 409)
+        values = []
+        for sid, source in sources.items():
+            if self._blob_kind(db, sid) != 'workspace:employer_source':
+                fail('CONFLICT', 'Research original ownership mismatch', 409)
+            origin = db.execute('SELECT owner,application_id,run_id,intent_id,job_id,fence FROM research_blob_origins WHERE id=?', (sid,)).fetchone()
+            if not origin:
+                fail('CONFLICT', 'Research original origin is unavailable', 409)
+            registration = db.execute('SELECT state FROM research_intents WHERE id=?', (origin[3],)).fetchone()
+            upload = db.execute('SELECT owner,state,blob_sha256 FROM upload_intents WHERE id=?', (sid,)).fetchone()
+            receipt = db.execute('SELECT device,inode FROM upload_receipts WHERE id=?', (sid,)).fetchone()
+            if (origin[:3] != (scope.profile_id, scope.application_id, run.id)
+                    or registration != ('published',)
+                    or upload != (scope.profile_id, 'committed', source.original_sha256) or receipt is None):
+                fail('CONFLICT', 'Research original registration proof mismatch', 409)
+            values.append({'source': source.model_dump(mode='json'), 'unit': units[sid],
+                           'origin': list(origin), 'receipt': list(receipt)})
+        return run, revision[0], values
+
+    def scope_revision(self, db, scope, now):
+        if scope.corpus == 'employer':
+            return self.require_current_research(db, scope, now)[1]
+        return self._corpus_revision(db, scope.profile_id, scope.corpus)
+
+    def capture_scoped_sources(self, db, scope, now):
+        if scope.corpus == 'employer':
+            _, revision, values = self.require_current_research(db, scope, now)
+            return revision, values
+        return self.capture_sources(db, scope.profile_id, scope.corpus)
+
+    def verify_scoped_sources(self, scope, values):
+        """Bounded original byte/identity IO. Invoke only outside SQLite writers."""
+        from .research.broker import MAX_RUN_BYTES, MAX_SOURCES
+        from .research.fetch import MAX_BYTES
+        if scope.corpus != 'employer':
+            return
+        total = 0
+        if len(values) > MAX_SOURCES:
+            fail('CONFLICT', 'Research original budget exceeded', 409)
+        for value in values:
+            source = value['source']
+            if (source['profile_id'], source['application_id'], source['research_run_id']) != (scope.profile_id, scope.application_id, scope.research_run_id):
+                fail('CONFLICT', 'Original verification scope mismatch', 409)
+            path = self._blob(source['id'])
+            try:
+                descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                with os.fdopen(descriptor, 'rb') as handle:
+                    before = os.fstat(handle.fileno())
+                    raw = handle.read(MAX_BYTES + 1)
+                    after = os.fstat(handle.fileno())
+                total += len(raw)
+                if ((before.st_dev, before.st_ino) != tuple(value['receipt'])
+                        or (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+                        != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+                        or len(raw) > MAX_BYTES or total > MAX_RUN_BYTES
+                        or hashlib.sha256(raw).hexdigest() != source['original_sha256']):
+                    fail('CONFLICT', 'Research original integrity mismatch', 409)
+            except OSError:
+                fail('CONFLICT', 'Research original is unavailable', 409)
+
+    def active_scoped_manifest(self, db, scope, now):
+        revision = self.scope_revision(db, scope, now)
+        args = [scope.profile_id, scope.corpus]
+        clause = ''
+        if scope.corpus == 'employer':
+            clause = " AND json_extract(data,'$.application_id')=? AND json_extract(data,'$.research_run_id')=?"
+            args.extend((scope.application_id, scope.research_run_id))
+        rows = db.execute("SELECT data FROM manifests WHERE owner=? AND corpus=? AND state='active'" + clause, args).fetchall()
+        if len(rows) > 1:
+            fail('CONFLICT', 'Ambiguous active generation', 409)
+        if not rows:
+            return None
+        manifest = decode_manifest(json.loads(rows[0][0]))
+        return manifest if manifest.revision == revision else None
+
+    def require_generation_binding(self, db, binding, now):
+        manifest = self.active_scoped_manifest(db, binding.scope, now)
+        if (manifest is None or (manifest.generation_id, manifest.revision, manifest.model_fingerprint,
+                manifest.chunker_version, manifest.chunk_ids_sha256) != (binding.generation_id,
+                binding.revision, binding.model_fingerprint, binding.chunker_version, binding.chunk_checksum)):
+            fail('CONFLICT', 'Generation binding is no longer current', 409)
+        row = db.execute('SELECT owner,state,data FROM generation_intents WHERE id=?', (binding.generation_id,)).fetchone()
+        if row:
+            from .domain.contracts import GenerationIntent
+            intent = GenerationIntent.model_validate_json(row[2])
+            revision = intent.revisions.research if intent.corpus == 'employer' else getattr(intent.revisions, intent.corpus)
+            if (row[:2] != (binding.scope.profile_id, 'published')
+                    or (intent.profile_id, intent.corpus, intent.application_id, intent.research_run_id,
+                        revision, intent.model_fingerprint, intent.chunker_version,
+                        intent.dense_collection, intent.sparse_relpath)
+                    != (binding.scope.profile_id, binding.scope.corpus, binding.scope.application_id,
+                        binding.scope.research_run_id, manifest.revision, manifest.model_fingerprint,
+                        manifest.chunker_version, manifest.dense_collection, manifest.sparse_relpath)):
+                fail('CONFLICT', 'Generation registration scope/identity mismatch', 409)
+            ids = [r[0] for r in db.execute('SELECT id FROM generation_chunks WHERE generation_id=? AND owner=? ORDER BY id',
+                                          (binding.generation_id, binding.scope.profile_id))]
+            mutation = db.execute('SELECT fence,state FROM dense_mutations WHERE generation_id=?', (binding.generation_id,)).fetchone()
+            if (len(ids) != manifest.chunk_count or digest('\n'.join(ids)) != manifest.chunk_ids_sha256
+                    or mutation != (intent.fence, 'acknowledged' if ids else 'not_attempted')):
+                fail('CONFLICT', 'Generation association/completion proof mismatch', 409)
+        elif binding.scope.corpus == 'employer':
+            fail('CONFLICT', 'Employer generation registration is unavailable', 409)
+        return manifest
+
+    def resolve_evidence_reference(self, db, binding, reference, now):
+        """Resolve canonical Unicode spans, not just a selected chunk's text hash."""
+        try:
+            binding.validate_reference(reference)
+        except ValueError:
+            fail('CONFLICT', 'Evidence reference scope mismatch', 409)
+        self.require_generation_binding(db, binding, now)
+        span, scope = reference.span, binding.scope
+        if scope.corpus == 'facts':
+            obj = self._citation_record(db, scope.profile_id, 'facts', span.record_id, span.unit_id)
+        else:
+            _, _, values = self.require_current_research(db, scope, now)
+            obj = next((value['unit'] for value in values if value['source']['id'] == span.record_id
+                        and value['unit']['id'] == span.unit_id), None)
+            if obj is None:
+                fail('CONFLICT', 'Evidence canonical unit is unavailable', 409)
+        try:
+            span.validate_text(obj['text'])
+        except ValueError:
+            fail('CONFLICT', 'Evidence canonical span integrity mismatch', 409)
+        # Require association with the bound generation; never owner-global employer cache.
+        rows = db.execute('SELECT data FROM generation_chunks WHERE generation_id=? AND owner=?',
+                          (binding.generation_id, scope.profile_id)).fetchall()
+        if not rows and scope.corpus == 'facts' and not db.execute('SELECT 1 FROM generation_intents WHERE id=?', (binding.generation_id,)).fetchone():
+            rows = db.execute("SELECT data FROM records WHERE owner=? AND kind='chunk:facts'", (scope.profile_id,)).fetchall()
+        for (serialized,) in rows:
+            chunk = decode_chunk(json.loads(serialized))
+            if (chunk.corpus == scope.corpus and chunk.record_id == span.record_id and chunk.unit_id == span.unit_id
+                    and chunk.start <= span.start < span.end <= chunk.end
+                    and chunk.text == obj['text'][chunk.start:chunk.end] and digest(chunk.text) == chunk.text_sha256
+                    and (scope.corpus != 'employer' or (chunk.application_id, chunk.research_run_id) == (scope.application_id, scope.research_run_id))):
+                return {'integrity': 'verified', 'semantic_support': 'not_assessed',
+                        'canonical_text': obj['text'], **span.model_dump(mode='json')}
+        fail('CONFLICT', 'Evidence span is not associated with the bound generation', 409)
+
     def capture_sources(self, db, profile_id, corpus):
         """Immutable canonical input capture; callers own a short transaction."""
         corpus_name(corpus)
@@ -513,9 +751,14 @@ class Store:
         chunks = []
         for serialized in values:
             value = dict(serialized)
+            if corpus == 'employer':
+                unit = value['unit']
+                value = dict(id=unit['id'], profile_id=profile_id, source_id=unit['source_id'],
+                             ordinal=0, page=None, text=unit['text'], text_sha256=unit['text_sha256'],
+                             application_id=unit['application_id'], research_run_id=unit['research_run_id'])
             if corpus == 'facts' and value['origin']:
                 value['origin'] = Span(**value['origin'])
-            obj = Fact(**value) if corpus == 'facts' else Unit(**value)
+            obj = Fact(**value) if corpus == 'facts' else EmployerUnit(**value) if corpus == 'employer' else Unit(**value)
             for c in chunker(obj):
                 self._span(obj.text, c.start, c.end)
                 if (c.profile_id != profile_id or c.corpus != corpus
@@ -523,12 +766,21 @@ class Store:
                         or c.unit_id != (None if corpus == 'facts' else obj.id)
                         or c.text != obj.text[c.start:c.end] or c.text_sha256 != digest(c.text)):
                     fail('INVALID_INPUT', 'Chunk does not match canonical text', 400)
+                if corpus == 'employer' and (getattr(c, 'application_id', None), getattr(c, 'research_run_id', None)) != (obj.application_id, obj.research_run_id):
+                    fail('INVALID_INPUT', 'Employer chunk scope mismatch', 400)
                 chunks.append(c)
                 if len(chunks) > 1000:
                     fail('LIMIT_EXCEEDED', 'Snapshot limit is 1000 chunks', 413)
         if len({c.id for c in chunks}) != len(chunks):
             fail('INVALID_INPUT', 'Duplicate chunk IDs', 400)
-        return Snapshot(profile_id, corpus, revision, tuple(sorted(chunks, key=lambda c: c.id)))
+        ordered = tuple(sorted(chunks, key=lambda c: c.id))
+        if corpus == 'employer':
+            scopes = {(v['unit']['application_id'], v['unit']['research_run_id']) for v in values}
+            if len(scopes) != 1:
+                fail('INVALID_INPUT', 'Exact employer capture scope required', 400)
+            app, run = scopes.pop()
+            return EmployerSnapshot(profile_id, corpus, revision, ordered, application_id=app, research_run_id=run)
+        return Snapshot(profile_id, corpus, revision, ordered)
 
     def snapshot(self, profile_id, corpus, chunker):
         with self._tx() as db:
@@ -546,7 +798,12 @@ class Store:
         if transaction is None or jobs is None:
             fail('CONFLICT', 'Index publication requires a fenced job transaction', 409)
         db = transaction
-        corpus_name(manifest.corpus)
+        if manifest.corpus != 'employer':
+            corpus_name(manifest.corpus)
+        from .retrieval.packet_contracts import CorpusScope
+        scope = CorpusScope(profile_id=manifest.profile_id, corpus=manifest.corpus,
+                            application_id=getattr(manifest, 'application_id', None),
+                            research_run_id=getattr(manifest, 'research_run_id', None))
         identifier(manifest.generation_id)
         p = self._profile(db, manifest.profile_id)
         intent = db.execute('SELECT owner,state,data FROM generation_intents WHERE id=?',
@@ -557,6 +814,10 @@ class Store:
         job, parameters = jobs.assert_current(db, captured['job_id'], worker_id, fence)
         if (captured['fence'] != fence or job.kind != 'index'
                 or job.profile_id != p.id or parameters['corpus'] != manifest.corpus
+                or captured.get('application_id') != scope.application_id
+                or captured.get('research_run_id') != scope.research_run_id
+                or job.application_id != scope.application_id
+                or parameters.get('research_run_id') != scope.research_run_id
                 or captured['corpus'] != manifest.corpus
                 or captured['model_fingerprint'] != manifest.model_fingerprint
                 or captured['chunker_version'] != manifest.chunker_version
@@ -570,14 +831,22 @@ class Store:
         required_state = 'acknowledged' if ids else 'not_attempted'
         if mutation != (fence, required_state):
             fail('CONFLICT', 'Dense generation completion has not been acknowledged', 409)
-        if self._corpus_revision(db, p.id, manifest.corpus) != expected_revision or manifest.revision != expected_revision:
+        if self.scope_revision(db, scope, jobs._now()) != expected_revision or manifest.revision != expected_revision:
             fail('CONFLICT', 'Evidence changed; rebuild required', 409)
         if manifest.chunk_count != len(ids) or manifest.chunk_ids_sha256 != digest('\n'.join(ids)):
             fail('CONFLICT', 'Index chunk set mismatch', 409)
-        db.execute("DELETE FROM records WHERE owner=? AND kind=?", (p.id, 'chunk:' + manifest.corpus))
-        for _, data in rows:
-            self._put(db, p.id, 'chunk:' + manifest.corpus, Chunk(**json.loads(data)))
-        db.execute("UPDATE manifests SET state='retired' WHERE owner=? AND corpus=?", (p.id, manifest.corpus))
+        if manifest.corpus == 'employer':
+            for _, data in rows:
+                chunk = decode_chunk(json.loads(data))
+                if (chunk.profile_id, chunk.corpus, chunk.application_id, chunk.research_run_id) != (p.id, 'employer', scope.application_id, scope.research_run_id):
+                    fail('CONFLICT', 'Employer generation chunk scope mismatch', 409)
+            db.execute("UPDATE manifests SET state='retired' WHERE owner=? AND corpus='employer' AND json_extract(data,'$.application_id')=? AND json_extract(data,'$.research_run_id')=?",
+                       (p.id, scope.application_id, scope.research_run_id))
+        else:
+            db.execute("DELETE FROM records WHERE owner=? AND kind=?", (p.id, 'chunk:' + manifest.corpus))
+            for _, data in rows:
+                self._put(db, p.id, 'chunk:' + manifest.corpus, Chunk(**json.loads(data)))
+            db.execute("UPDATE manifests SET state='retired' WHERE owner=? AND corpus=?", (p.id, manifest.corpus))
         db.execute('INSERT INTO manifests VALUES(?,?,?,?,?)', (manifest.generation_id, p.id, manifest.corpus, 'active', json.dumps(asdict(manifest))))
 
     def active_manifest(self, profile_id, corpus):
@@ -587,7 +856,7 @@ class Store:
             row = db.execute("SELECT data FROM manifests WHERE owner=? AND corpus=? AND state='active'", (p.id, corpus)).fetchone()
             if not row:
                 return None
-            value = Manifest(**json.loads(row[0]))
+            value = decode_manifest(json.loads(row[0]))
             return value if value.revision == self._corpus_revision(db, p.id, corpus) else None
 
     def eligible_chunks(self, profile_id, corpus, chunk_ids, source_ids=None, generation_id=None):
@@ -875,7 +1144,7 @@ class Store:
                 row = db.execute('SELECT data FROM manifests WHERE id=? AND owner=?',
                                  (generation_id, ticket.profile_id)).fetchone()
                 if row:
-                    result.append(Manifest(**json.loads(row[0])))
+                    result.append(decode_manifest(json.loads(row[0])))
             return result
 
     def pending_cleanup(self):
@@ -908,6 +1177,9 @@ class Store:
                     fail('CLEANUP_PENDING', 'Canonical derivatives remain pending', 503)
             for gid in ticket.generation_ids:
                 intent = db.execute('SELECT state FROM generation_intents WHERE id=? AND owner=?', (gid, ticket.profile_id)).fetchone()
+                employer = db.execute("SELECT 1 FROM tombstones WHERE id=? AND owner=? AND kind='employer_generation'", (gid, ticket.profile_id)).fetchone()
+                if employer and (intent is None or db.execute('SELECT 1 FROM dense_mutations WHERE generation_id=?', (gid,)).fetchone() is None):
+                    fail('CLEANUP_PENDING', 'Employer generation ownership graph remains unavailable', 503)
                 if intent and intent[0] != 'cleaned':
                     fail('CLEANUP_PENDING', 'Generation cleanup remains pending', 503)
                 mutation = db.execute('SELECT state FROM dense_mutations WHERE generation_id=?', (gid,)).fetchone()
