@@ -200,9 +200,22 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   overblocking and orphan provider-response forgetting. Required manual questions
   still block, optional ones stay visible, and forgetting uses canonical attempt
   scope rather than missing or cross-application job links.
-  Runtime editing, one-call reassessment, exact human review, integrated drafting
-  UI and human-labelled semantic-quality qualification remain pending. Generation
+  At this publication, runtime editing, one-call reassessment, exact human review,
+  integrated drafting UI and human-labelled semantic-quality qualification were pending. Generation
   inspection never claims review/browser eligibility. **S5 is not complete.**
+- **S5 local editing/export increment:** current generation or edited drafts can
+  create immutable exact-user-text revisions with empty ledgers and unassessed
+  status, even for unchanged text. Parent hashes, full-vector CAS, original-source
+  checks and recursive publication validation preserve history; exact local retries
+  advance output only once. Required-answer/manual/limit warnings remain visible.
+  Up to 64 edit links per generation are supported; a 65th is rejected before
+  publication. Current or intact stale/blocked text exports as plain text with
+  fixed headers, without provider/history internals. Downloaded copies are outside
+  managed forgetting. Managed canonical changes before CAS reject; original-file
+  corruption observed during verification rejects, but unmanaged filesystem
+  mutation after that check is not atomically prevented. No cloud/model/key access
+  or review/browser eligibility is introduced. Runtime one-call reassessment,
+  exact human review, integrated UI and semantic/release gates remain pending.
 - **S6 data preview only:** `/ui/workspace/index.html` connects canonical Python
   onboarding, pending confirmations, application inputs, feedback, selected
   document import and hybrid quotation/citation inspection. Separate typed values,
@@ -244,7 +257,7 @@ not outcomes inferred from configuration or synthetic mocks. No live employer
 application actions are authorized by implementation tests.
 
 The preserved Node app and Python evidence workbench remain runnable separately.
-Python API-only generation is described above; runtime edit/reassessment/review,
-the unified drafting UI and browser automation remain unavailable pending their
+Python API-only generation, immutable local edits and clean export are described
+above; runtime reassessment/review, the unified drafting UI and browser automation remain unavailable pending their
 own integration and independent gates. Each
 friend uses an independent local installation, not a hosted shared account.

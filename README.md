@@ -184,7 +184,7 @@ The evaluation is a small synthetic retrieval check, not semantic truth validati
 
 Implementation evidence: [verified milestone and remaining gates](docs/plans/evidence-verification.md).
 
-## Python drafting API preview (S5 generation increment)
+## Python drafting API preview (S5 drafting increments)
 
 With a current complete research run and registered fact/employer packet batch,
 the Python API can disclose selected per-question context, queue a durable draft
@@ -202,9 +202,14 @@ and inspection make no paid calls or key lookups. Reservation estimates use
 conservative UTF-8 input bytes plus output ceilings, **not exact tokens or prices**.
 See [the Python drafting API](API.md#python-drafting-generation-preview).
 
-This is API-only generation/publication, **not completed S5 or a qualified release**.
+This is API-only generation/publication and local editing, **not completed S5 or a qualified release**.
 Unsupported claims, missing required answers and exceeded limits remain visible.
 Semantic assessments and factual inventories are fallible, not truth certification.
-Editing, runtime reassessment, exact human review and browser handoff are not
-enabled in this increment; `review_eligible` and `browser_eligible` remain false.
+Explicit local edits create immutable unassessed revisions, clear the support
+ledger and advance output once. Exact retries return the same revision; a newer
+output makes its parent stale. Up to 64 edit links per generation are supported.
+Intact stale or blocked drafts can be downloaded as plain text; downloaded copies
+are outside managed deletion. Editing/export requires no cloud key or paid call.
+Runtime reassessment, exact human review and browser handoff are not enabled;
+`review_eligible` and `browser_eligible` remain false.
 No real provider request or human-labelled semantic-quality gate has been run.

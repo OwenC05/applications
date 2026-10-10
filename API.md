@@ -447,9 +447,10 @@ incomplete inventories, required missing manual answers and exceeded limits publ
 inspectable **blocked** text. Optional manual requirements do not block by themselves.
 
 Inspection currently always returns `review_eligible:false,browser_eligible:false`
-and capabilities `generation:true,edit:false,reassess:false,review:false`. Pure
-one-call reassessment exists internally, but there is **no runtime edit/reassess/
-review endpoint** yet. No reviewed/submit badge or browser grant is created. Source/
+and capabilities `generation:true,edit:true,reassess:false,review:false`. Local
+edit/export routes are described below. Pure one-call reassessment exists
+internally, but there is **no runtime reassess/review endpoint** yet.
+No reviewed/submit badge or browser grant is created. Source/
 fact forgetting removes derived prose and provider responses by owner/application
 scope, including orphan responses, while retaining uncertain usage accounting.
 
@@ -459,3 +460,43 @@ application scope cannot be proven, application deletion returns `409 CONFLICT`
 and rolls back instead of erasing another application's keys or claiming privacy
 completion. Explicit owner-wide evidence forgetting or profile deletion removes
 all owner keys; no automatic scope guess or background reset is performed.
+
+### Immutable local edits and clean export
+
+`POST .../drafts/{draft_id}/edits` returns 201 draft inspection. Supply
+`expected_revisions` (all seven dimensions), `parent_text_sha256`,
+`parent_ledger_sha256`, `parent_publication_sha256`, `idempotency_key` (1–200
+characters), and `draft:{targets:[{target,text},...]}`. Include every frozen writing
+target exactly once in canonical order, with optional cover-letter target last.
+Do not supply a ledger, packet ID, assessment or fact confirmation. The parent
+must be current and integrity-verified, and its three hashes must match exactly.
+
+An edit preserves exact user text—including whitespace, empty required answers
+and over-limit text—but creates a new immutable **unassessed** revision with an
+empty ledger and incomplete inventory. Visible reasons include
+`ASSESSMENT_REQUIRED` and applicable required-answer/limit/manual-question blocks.
+The original remains unchanged. Publication advances application output once;
+another edit/output makes prior revisions stale. Even identical text invalidates
+the previous assessment. Local edits create no job, paid attempt, consent grant,
+fact confirmation or human review. An exact retained request/key replay returns
+the same draft before currentness checks; a changed request conflicts. Keys are
+scoped to owner/application/local editing, separately from job keys.
+
+Up to **64 edit links**, excluding the generation root, are supported. Attempting
+a 65th returns a conflict without publication; a fresh generation starts a new
+chain. Reads validate the full immutable lineage before permitting stale history.
+Missing, duplicate, cyclic or corrupt associations fail closed. Current reads
+verify originals outside SQLite writers and recapture canonical authority.
+Managed canonical changes before publication CAS invalidate the edit; observed
+original corruption rejects verification. Unmanaged filesystem mutation after
+the last verification is **not atomically prevented**. Subsequent current
+inspection/export re-verifies; an inspection failure after commit does not mean
+the edit/output increment rolled back.
+
+`GET .../drafts/{draft_id}/export` downloads UTF-8 `text/plain` with a fixed
+`application-draft.txt` attachment filename and no-store/nosniff headers. It uses
+only validated saved question labels and exact writing text—not histories,
+provider payloads or publication internals. Intact stale/blocked text is
+exportable; corrupt associations are not. Download is not review or submission
+authorization, and downloaded copies are outside managed forgetting. Editing,
+inspection and export do not initialize models, read a cloud key or send requests.

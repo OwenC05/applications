@@ -217,7 +217,49 @@ class DraftingService:
                     publication_id=publication.id, publication_sha256=publication.publication_sha256,
                     intent_id=publication.intent_id)
 
-    def _association(self, db, owner, application_id, draft_id):
+    def edit(self, owner, application_id, parent_id, request):
+        from .edits import DraftEdits
+        return DraftEdits(self).edit(owner, application_id, parent_id, request)
+
+    def export(self, owner, application_id, draft_id):
+        inspection = self.detail(owner, application_id, draft_id)
+        draft = inspection['draft']
+        questions = {item['id']: item['text'] for item in inspection['canonical_questions']}
+        parts = ['Application draft — export is not review or submission approval.']
+        if draft['cover_letter']:
+            parts.append('Cover letter\n' + draft['cover_letter'])
+        for answer in draft['answers']:
+            if answer['question_id'] not in questions:
+                conflict('Draft export question association unavailable')
+            parts.append(questions[answer['question_id']] + '\n' + answer['text'])
+        return '\n\n'.join(parts)
+
+    def _association(self, db, owner, application_id, draft_id, *, visited=()):
+        if draft_id in visited or len(visited) > 64:
+            conflict('Draft lineage is cyclic or exceeds bounds')
+        self.domain._get(db, owner, application_id, 'application', c.ApplicationRecord)
+        draft = self.domain._get(db, owner, draft_id, 'draft', c.DraftRevision)
+        if (draft.id, draft.profile_id, draft.application_id) != (draft_id, owner, application_id):
+            raise EvidenceError('NOT_FOUND', 'Draft not found', 404)
+        rows = db.execute("SELECT id,data FROM records WHERE owner=? AND kind='workspace:draft_dependency' AND json_extract(data,'$.draft_id')=?", (owner, draft_id)).fetchall()
+        if len(rows) != 1:
+            conflict('Draft publication association unavailable')
+        raw = json.loads(rows[0][1])
+        if not isinstance(raw, dict):
+            conflict('Draft publication schema mismatch')
+        if 'origin' not in raw:
+            return self._generation_association(db, owner, application_id, draft_id)
+        if raw['origin'] != 'edit' or len(visited) >= 64:
+            conflict('Draft publication origin or lineage exceeds bounds')
+        from .edit_contracts import EditPublication
+        from .edits import DraftEdits
+        publication = EditPublication.model_validate_json(rows[0][1])
+        if publication.id != rows[0][0]:
+            conflict('Draft publication identity mismatch')
+        return DraftEdits(self).association(db, owner, application_id, draft_id,
+                                           publication, visited + (draft_id,))
+
+    def _generation_association(self, db, owner, application_id, draft_id):
         self.domain._get(db, owner, application_id, 'application', c.ApplicationRecord)
         draft = self.domain._get(db, owner, draft_id, 'draft', c.DraftRevision)
         if (draft.id, draft.profile_id, draft.application_id) != (draft_id, owner, application_id):
@@ -330,7 +372,7 @@ class DraftingService:
             canonical_questions=[q.model_dump(mode='json') for q in batch.canonical_questions],
             manual_requirements=[m.model_dump(mode='json') for m in batch.manual_requirements],
             semantic_assessment='fallible_not_release_qualified', review_eligible=False, browser_eligible=False,
-            capabilities=dict(generation=True, edit=False, reassess=False, review=False))
+            capabilities=dict(generation=True, edit=True, reassess=False, review=False))
 
     def list(self, owner, application_id):
         with self.store._read() as db:
