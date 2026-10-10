@@ -455,3 +455,30 @@ def test_expected_heartbeat_authority_loss_is_distinct_from_infrastructure_failu
         while outcome['state'] == 'active' and time.monotonic() < deadline:
             time.sleep(0.01)
     assert outcome == {'state': 'authority_lost', 'code': 'AUTHORITY_LOST'}
+
+
+def test_warned_paid_research_retry_cannot_dispatch_static_handler(tmp_path):
+    from copilot.domain.repository import ConsentInput
+    from copilot.provider import Limits, Provider
+    from copilot.retrycontracts import WarnedRetry
+    from copilot.store import Store
+    from copilot.worker import Worker
+    store = Store(tmp_path / 'data')
+    owner = store.create_profile('Synthetic', ['tech']).id
+    worker = Worker(store, lambda: pytest.fail('Paid retry cannot initialize inference'),
+                    research_factory=lambda *_: pytest.fail('Paid retry cannot dispatch static research'))
+    application = worker.jobs.domain.create_application(owner, ApplicationInput(expected_metadata_revision=0,
+        company='Company', role='Role', sector='tech', vacancy_url='https://example.com/job'))
+    worker.jobs.domain.consent(owner, ConsentInput(expected_consent_revision=0,
+        provider='openai', purposes=('research',), granted=True))
+    queued = worker.jobs.enqueue(owner, 'research', {}, 'uncertain', application.application_id)
+    leased = worker.jobs.claim(str(uuid4()), job_id=queued.id)
+    provider = Provider(worker.jobs, lambda: 'synthetic-key')
+    provider.configure_limits(owner, Limits(100000, 10, 100000, 10))
+    attempt = provider.reserve(leased.id, leased.lease_owner, leased.fence, 'research', 5000, 'configured-model')
+    provider._unknown(attempt.id, leased.id)
+    retry = provider.request_retry(owner, leased.id, WarnedRetry(prior_attempt_id=attempt.id,
+        idempotency_key='warned', acknowledge_duplicate_charge=True, warning_version='duplicate_charge_possible_v1'))
+    assert worker.run_once(retry.id, recovery=False)['error'] == 'HANDLER_UNAVAILABLE'
+    assert worker.jobs.get(owner, leased.id).state == 'indeterminate'
+    assert provider.usage(owner)['reserved_calls'] == 1

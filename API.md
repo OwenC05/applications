@@ -230,6 +230,23 @@ or Chroma merely to enqueue, read or cancel a job.
 | `GET /profiles/{id}/jobs/{job_id}` | Same summary; another owner's job returns `404`. |
 | `POST .../jobs/{job_id}/cancel` | `{schema_version:1}`; cancellation request and current durable state. Already transmitted work is not recalled. |
 | `GET /profiles/{id}/usage` | `{schema_version:1,usage}`; reserved/reported/indeterminate accounting, `monetary_cost:null` and unknown pricing, not an invented zero price. |
+| `GET .../jobs/{job_id}/provider-attempts` | Content-free attempt states/IDs, lineage and the duplicate-charge warning; `automatic_retry:false`, `retry_execution_available:false`. |
+| `POST .../jobs/{job_id}/retry` | `{schema_version:1,prior_attempt_id,idempotency_key,acknowledge_duplicate_charge:true,warning_version:"duplicate_charge_possible_v1"}`; `202` with a distinct durable job, `retry_of`, `original_outcome:"indeterminate"` and `execution_available:false`. |
+
+Warned retry is currently **queue-only**, not an enabled paid handler. The worker
+rejects retry-lineage jobs with `HANDLER_UNAVAILABLE` before static research can
+run. Only an owned indeterminate research/draft/assessment attempt is eligible;
+the server copies its original parameters and captured inputs, rather than
+accepting a new client payload or rebasing stale inputs. Current purpose consent,
+unchanged dependencies and configured daily and retry-family limits are required.
+Queuing does not read a provider key or transmit a request. Repeating an identical
+retry request/key returns its job; changing that request conflicts.
+
+The warning acknowledges that the original attempt may already have been billed.
+Retry does **not** resolve its outcome, release its reservation or reconcile
+billing. Original and sibling retry reservations continue to count against
+limits; any future paid execution must separately authorize and reserve a new
+attempt. Provider compatibility and paid drafting remain unqualified.
 
 Summaries expose job ID/owner/application/kind/state, bounded stage, captured
 revisions, fence/attempt count, cancellation flag, heartbeat/lease and generation

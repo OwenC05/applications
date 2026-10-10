@@ -40,6 +40,11 @@ class Jobs:
                 '''CREATE TABLE IF NOT EXISTS job_stages(job_id TEXT NOT NULL, stage TEXT NOT NULL,
                    fence INTEGER NOT NULL, data TEXT NOT NULL, sha256 TEXT NOT NULL,
                    PRIMARY KEY(job_id,stage))''',
+                '''CREATE TABLE IF NOT EXISTS job_retries(new_job_id TEXT PRIMARY KEY,
+                   owner TEXT NOT NULL, prior_job_id TEXT NOT NULL, prior_attempt_id TEXT NOT NULL,
+                   warning_version TEXT NOT NULL)''',
+                '''CREATE TABLE IF NOT EXISTS provider_retry_links(attempt_id TEXT PRIMARY KEY,
+                   prior_attempt_id TEXT NOT NULL)''',
                 '''CREATE TABLE IF NOT EXISTS app_revisions(owner TEXT NOT NULL,
                    application_id TEXT PRIMARY KEY, research INTEGER NOT NULL DEFAULT 0)''',
                 '''CREATE TABLE IF NOT EXISTS provider_attempts(id TEXT PRIMARY KEY,
@@ -118,6 +123,30 @@ class Jobs:
                        (job.id, owner, job.state, job.model_dump_json(), encode(parameters), encode(dependencies)))
             db.execute('INSERT INTO job_keys VALUES(?,?,?,?)', (owner, idempotency_key, job.id, request_hash))
             return job
+
+    def _create_warned_retry(self, db, prior, parameters, dependencies, body, request_hash):
+        """Internal same-transaction insert after Provider verifies purpose/budget/scope.
+
+        Never rebase the original capture or copy completed/uncertain provider stages.
+        """
+        retry = prior.model_copy(update={'id': uid(), 'state': 'queued', 'stage': 'queued',
+            'idempotency_key': body.idempotency_key, 'fence': 0, 'attempt_count': 0,
+            'lease_owner': None, 'heartbeat_at': None, 'lease_expires_at': None,
+            'cancellation_requested': False})
+        db.execute('INSERT INTO jobs VALUES(?,?,?,?,?,?)', (retry.id, retry.profile_id, retry.state,
+                   retry.model_dump_json(), encode(parameters), encode(dependencies)))
+        db.execute('INSERT INTO job_keys VALUES(?,?,?,?)',
+                   (retry.profile_id, body.idempotency_key, retry.id, request_hash))
+        db.execute('INSERT INTO job_retries VALUES(?,?,?,?,?)', (retry.id, retry.profile_id, prior.id,
+                   body.prior_attempt_id, body.warning_version))
+        return retry
+
+    def retry_lineage(self, owner, job_id):
+        with self.store._read() as db:
+            self._job(db, job_id, owner)
+            row = db.execute('SELECT prior_job_id,prior_attempt_id,warning_version FROM job_retries WHERE new_job_id=? AND owner=?',
+                             (job_id, owner)).fetchone()
+        return dict(zip(('prior_job_id', 'prior_attempt_id', 'warning_version'), row)) if row else None
 
     def get(self, owner, job_id):
         with self.store._tx() as db:

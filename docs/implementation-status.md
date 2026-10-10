@@ -53,6 +53,19 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   is configured and statically tested; Docker is unavailable on this host.
   Drafting and the full downstream release gates remain pending. The static
   research handler is described below.
+- **S2 closure:** explicit warned retry creates distinct durable job
+  and provider-attempt lineage without resolving or releasing an indeterminate
+  original. Stale inputs, missing acknowledgement, wrong ownership/purpose and
+  insufficient daily or retry-family budgets are rejected. Queuing reads no key;
+  paid retry execution is unavailable and the worker rejects it before static
+  research dispatch. Seven owned POSIX-child SIGKILL/reap/restart regressions cover
+  before reservation, preparation, transport, receiver acceptance, response before
+  commit, cached completion and proven-unsent receipt. These are local synthetic
+  crash tests, not paid-provider or Windows qualification. Receiver-observed
+  partial transmission and accepted-before-response windows are distinct. Code
+  review, architecture review and independent acceptance mapping verify the
+  **S2 infrastructure slice**; paid handlers and downstream release gates remain
+  unavailable or unqualified as described above.
 - **S3 standalone components:** anonymous static HTTPS acquisition with exact-host
   policy, validated pinned IP connections, bounded original bytes, verified TLS,
   canonical extraction and provenance hashes. HTML/PDF parsing runs in bounded

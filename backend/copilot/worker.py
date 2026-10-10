@@ -129,6 +129,8 @@ class Worker:
         if job:
             try:
                 with self.heartbeat(job) as heartbeat:
+                    if self.jobs.retry_lineage(job.profile_id, job.id):
+                        raise EvidenceError('HANDLER_UNAVAILABLE', 'Paid retry execution is not available in this worker', 503)
                     if job.kind == 'index':
                         self.service().run_index(job.id, self.worker_id, job.fence)
                     elif job.kind == 'research':

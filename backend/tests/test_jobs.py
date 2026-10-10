@@ -215,3 +215,31 @@ def test_disappeared_profile_preserves_paid_ambiguity_and_does_not_starve_queue(
     with store._tx() as db:
         assert db.execute('SELECT state FROM jobs WHERE id=?', (leased.id,)).fetchone()[0] == 'indeterminate'
         assert db.execute('SELECT state FROM provider_attempts WHERE id=?', (attempt.id,)).fetchone()[0] == 'indeterminate'
+
+
+def test_warned_retry_request_is_atomically_idempotent_without_original_revival(setup):
+    from test_provider import retry_request, uncertain
+    provider, original, attempt = uncertain(setup)
+    def retry(_):
+        return provider.request_retry(original.profile_id, original.id, retry_request(attempt))
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(retry, range(4)))
+    assert len({job.id for job in results}) == 1
+    assert len(provider.jobs.list(original.profile_id)) == 2
+    assert provider.jobs.get(original.profile_id, original.id).state == 'indeterminate'
+    assert provider.jobs.retry_lineage(original.profile_id, results[0].id)['prior_attempt_id'] == attempt.id
+
+
+@pytest.mark.parametrize('kind', ['index', 'cleanup'])
+def test_warned_retry_has_no_local_index_or_cleanup_capability(setup, kind):
+    from copilot.provider import Provider
+    from copilot.retrycontracts import WarnedRetry
+    _, owner, jobs, _ = setup
+    job = jobs.enqueue(owner, kind, {'corpus': 'facts'} if kind == 'index' else {}, 'local')
+    with jobs.store._tx() as db:
+        jobs._save(db, job.model_copy(update={'state': 'indeterminate'}))
+    with pytest.raises(EvidenceError):
+        Provider(jobs, lambda: pytest.fail('No paid key access')).request_retry(owner, job.id,
+            WarnedRetry(prior_attempt_id=str(uuid4()), idempotency_key='retry',
+                        acknowledge_duplicate_charge=True, warning_version='duplicate_charge_possible_v1'))
+    assert len(jobs.list(owner)) == 1

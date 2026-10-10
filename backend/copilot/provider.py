@@ -106,8 +106,7 @@ class Provider:
                        'job_tokens=excluded.job_tokens,job_calls=excluded.job_calls',
                        (owner, limits.daily_tokens, limits.daily_calls, limits.job_tokens, limits.job_calls))
 
-    def _authorize(self, db, job_id, worker_id, fence):
-        job, _ = self.jobs.assert_current(db, job_id, worker_id, fence)
+    def _purpose_consent(self, db, job):
         purposes = {'research': 'research', 'draft': 'drafting', 'assess': 'assessment'}
         if job.kind not in purposes or not job.application_id:
             error('CONSENT_REQUIRED', 'This operation has no paid provider capability', 403)
@@ -116,6 +115,57 @@ class Provider:
                 or purposes[job.kind] not in consent.purposes
                 or consent.revision != job.revisions.consent):
             error('CONSENT_REQUIRED', 'Current explicit provider/purpose consent required', 403)
+
+    def _family_attempts(self, db, job_id, exclude=None):
+        return db.execute("""WITH RECURSIVE ancestors(id) AS (
+            SELECT ? UNION SELECT r.prior_job_id FROM job_retries r JOIN ancestors a ON r.new_job_id=a.id),
+            family(id) AS (SELECT id FROM ancestors UNION
+            SELECT r.new_job_id FROM job_retries r JOIN family f ON r.prior_job_id=f.id)
+            SELECT data FROM provider_attempts WHERE job_id IN (SELECT id FROM family)
+            AND state!='definitely_unsent' AND id!=?""", (job_id, exclude or '')).fetchall()
+
+    def request_retry(self, owner, prior_job_id, body):
+        from .retrycontracts import WarnedRetry
+        # Revalidate even trusted callers passing a model_copy with invalid fields.
+        body = WarnedRetry.model_validate_json(body.model_dump_json())
+        request_hash = c.canonical_hash({'operation': 'warned_provider_retry', 'prior_job_id': prior_job_id,
+                                         'request': body.model_dump(mode='json')})
+        with self.store._tx() as db:
+            prior, parameters, dependencies = self.jobs._job(db, prior_job_id, owner)
+            old = db.execute('SELECT job_id,request_sha256 FROM job_keys WHERE owner=? AND key=?',
+                             (owner, body.idempotency_key)).fetchone()
+            if old:
+                if old[1] != request_hash:
+                    error('CONFLICT', 'Idempotency key belongs to a different explicit retry')
+                return self.jobs._job(db, old[0], owner)[0]
+            if prior.kind not in ('research', 'draft', 'assess') or prior.state != 'indeterminate':
+                error('CONFLICT', 'Only uncertain owned paid operations allow a warned retry')
+            row = db.execute('SELECT data FROM provider_attempts WHERE id=? AND owner=? AND job_id=?',
+                             (body.prior_attempt_id, owner, prior.id)).fetchone()
+            attempt = c.ProviderAttempt.model_validate_json(row[0]) if row else None
+            if (not attempt or attempt.state != 'indeterminate' or attempt.profile_id != owner
+                    or attempt.application_id != prior.application_id or attempt.job_id != prior.id):
+                error('NOT_FOUND', 'Owned uncertain provider attempt required', 404)
+            current = self.jobs.capture(db, owner, prior.application_id)
+            if not prior.revisions.matches(current, dependencies):
+                error('CONFLICT', 'Captured inputs changed; start a new workflow rather than retry')
+            self._purpose_consent(db, prior)
+            limits = db.execute('SELECT daily_tokens,daily_calls,job_tokens,job_calls FROM budget_limits WHERE owner=?', (owner,)).fetchone()
+            if not limits:
+                error('BUDGET_REQUIRED', 'Configure explicit budgets before retry', 403)
+            day = self.jobs._now().date().isoformat()
+            daily = db.execute("SELECT data FROM provider_attempts WHERE owner=? AND day=? AND state!='definitely_unsent'", (owner, day)).fetchall()
+            for rows, token_cap, call_cap in ((daily, limits[0], limits[1]),
+                                             (self._family_attempts(db, prior.id), limits[2], limits[3])):
+                attempts = [c.ProviderAttempt.model_validate_json(row[0]) for row in rows]
+                if (sum(max(a.reserved_tokens, a.reported_tokens or 0) for a in attempts) + attempt.reserved_tokens > token_cap
+                        or len(attempts) + 1 > call_cap):
+                    error('BUDGET_EXCEEDED', 'Original uncertainty and retry exceed configured budget', 403)
+            return self.jobs._create_warned_retry(db, prior, parameters, dependencies, body, request_hash)
+
+    def _authorize(self, db, job_id, worker_id, fence):
+        job, _ = self.jobs.assert_current(db, job_id, worker_id, fence)
+        self._purpose_consent(db, job)
         key = self._key_supplier()
         if not isinstance(key, str) or not key or len(key) > 4096 or any(ch in key for ch in '\r\n'):
             error('PROVIDER_UNCONFIGURED', 'Configure the provider explicitly before paid work', 503)
@@ -132,6 +182,21 @@ class Provider:
                     'unknown_attempts': sum(a.state in ('prepared', 'indeterminate') or a.reported_tokens is None
                                             for a in rows if a.state != 'definitely_unsent'),
                     'monetary_cost': None, 'pricing_status': 'unknown'}
+
+    def attempts(self, owner, job_id):
+        """Content-free reconciliation view; no assertion of externally resolved billing."""
+        with self.store._read() as db:
+            self.jobs._job(db, job_id, owner)
+            result = []
+            for serialized in db.execute('SELECT data FROM provider_attempts WHERE owner=? AND job_id=? ORDER BY rowid', (owner, job_id)):
+                attempt = c.ProviderAttempt.model_validate_json(serialized[0])
+                item = attempt.model_dump(mode='json', include={'id', 'job_id', 'fence', 'state',
+                    'reserved_tokens', 'reserved_calls', 'reported_tokens', 'prepared_at'})
+                item['reconciliation'] = 'unresolved' if attempt.state in ('prepared', 'indeterminate') else 'not_required'
+                lineage = db.execute('SELECT prior_attempt_id FROM provider_retry_links WHERE attempt_id=?', (attempt.id,)).fetchone()
+                item['retry_of_attempt_id'] = lineage[0] if lineage else None
+                result.append(item)
+        return result
 
     def reserve(self, job_id, worker_id, fence, stage, reserved_tokens, model, request_sha256=None):
         if (type(reserved_tokens) is not int or not 1 <= reserved_tokens <= 100_000_000
@@ -152,7 +217,7 @@ class Provider:
                 error('BUDGET_REQUIRED', 'Configure explicit token and call budgets before paid work', 403)
             day = self.jobs._now().astimezone(timezone.utc).date().isoformat()
             daily = db.execute("SELECT data FROM provider_attempts WHERE owner=? AND day=? AND state!='definitely_unsent'", (job.profile_id, day)).fetchall()
-            per_job = db.execute("SELECT data FROM provider_attempts WHERE job_id=? AND state!='definitely_unsent'", (job.id,)).fetchall()
+            per_job = self._family_attempts(db, job.id)
             for rows, token_cap, call_cap in ((daily, limits[0], limits[1]), (per_job, limits[2], limits[3])):
                 attempts = [c.ProviderAttempt.model_validate_json(r[0]) for r in rows]
                 tokens = sum(max(a.reserved_tokens, a.reported_tokens or 0) for a in attempts)
@@ -165,6 +230,9 @@ class Provider:
                                          prepared_at=self.jobs._now())
             db.execute('INSERT INTO provider_attempts VALUES(?,?,?,?,?,?,?,?,?,?)',
                        (attempt.id, job.profile_id, job.id, attempt.state, attempt.model_dump_json(), 0, day, None, stage, request_sha256))
+            lineage = db.execute('SELECT prior_attempt_id FROM job_retries WHERE new_job_id=?', (job.id,)).fetchone()
+            if lineage:
+                db.execute('INSERT INTO provider_retry_links VALUES(?,?)', (attempt.id, lineage[0]))
             return attempt
 
     def _before_send(self, attempt_id, job_id, worker_id, fence):
@@ -175,7 +243,7 @@ class Provider:
                 error('PROVIDER_UNKNOWN', 'This provider attempt cannot be transmitted again')
             attempt = c.ProviderAttempt.model_validate_json(row[0])
             day = self.jobs._now().date().isoformat()
-            limits = db.execute('SELECT daily_tokens,daily_calls FROM budget_limits WHERE owner=?', (attempt.profile_id,)).fetchone()
+            limits = db.execute('SELECT daily_tokens,daily_calls,job_tokens,job_calls FROM budget_limits WHERE owner=?', (attempt.profile_id,)).fetchone()
             if not limits:
                 error('BUDGET_REQUIRED', 'Provider budget is no longer configured', 403)
             other_rows = db.execute("SELECT data FROM provider_attempts WHERE owner=? AND day=? AND id!=? AND state!='definitely_unsent'",
@@ -184,6 +252,10 @@ class Provider:
             if (sum(max(a.reserved_tokens, a.reported_tokens or 0) for a in others) + attempt.reserved_tokens > limits[0]
                     or len(others) + 1 > limits[1]):
                 error('BUDGET_EXCEEDED', 'Transmission-day reservation exceeds configured daily limit', 403)
+            family = [c.ProviderAttempt.model_validate_json(row[0]) for row in self._family_attempts(db, job_id, attempt_id)]
+            if (sum(max(a.reserved_tokens, a.reported_tokens or 0) for a in family) + attempt.reserved_tokens > limits[2]
+                    or len(family) + 1 > limits[3]):
+                error('BUDGET_EXCEEDED', 'Retry-family reservation exceeds configured job limit', 403)
             # Only undispatched attempts move: the serialized transaction proves
             # no previous body admission, retaining uncertain attempts untouched.
             db.execute('UPDATE provider_attempts SET dispatched=1,day=? WHERE id=?', (day, attempt_id))

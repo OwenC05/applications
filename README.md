@@ -125,6 +125,13 @@ Only the workbench port is published, on loopback; Chroma and the background wor
 
 Indexing now uses durable fenced jobs. The commands above enqueue an index job and wait for its durable result, including when the background worker claims it. API clients can instead enqueue with `POST /api/workspace/profiles/PROFILE_ID/indexes` and inspect or cancel the returned job. The worker supports indexing and bounded static research; index routes do not launch research, and no drafting handler is enabled. Deletion revokes access immediately and returns cleanup pending for the worker to reconcile; a database outage or an unacknowledged remote write can keep cleanup pending.
 
+Provider-attempt inspection and explicitly warned retry queuing are documented in
+[API.md](API.md#durable-indexing-status-and-worker-outcomes). Retry may cause
+duplicate charges: it preserves the original unknown outcome and reserved budget,
+and requires unchanged inputs, current purpose consent and retry-family limits.
+**Paid retry execution is unavailable**; queuing does not read a key or send a
+request, and the worker rejects these jobs rather than running static research.
+
 For a non-Docker installation, run the worker in another integrated terminal with the **same** data/model/Chroma settings as the API:
 
 ```sh

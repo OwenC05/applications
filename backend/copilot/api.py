@@ -290,6 +290,24 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
     def workspace_job(profile_id: str, job_id: str):
         return {'schema_version': 1, 'job': job_summary(jobs.get(profile_id, job_id))}
 
+    @app.get('/api/workspace/profiles/{profile_id}/jobs/{job_id}/provider-attempts')
+    def workspace_provider_attempts(profile_id: str, job_id: str):
+        from .retrycontracts import WARNING_TEXT, WARNING_VERSION
+        return {'schema_version': 1, 'attempts': Provider(jobs, lambda: None).attempts(profile_id, job_id),
+                'automatic_retry': False, 'retry_execution_available': False,
+                'retry_warning': {'version': WARNING_VERSION, 'message': WARNING_TEXT}}
+
+    @app.post('/api/workspace/profiles/{profile_id}/jobs/{job_id}/retry', status_code=202)
+    async def workspace_warned_retry(profile_id: str, job_id: str, request: Request):
+        from .retrycontracts import WarnedRetry
+        body = await workspace_input(request, WarnedRetry)
+        # Queue-only: never discover/configure/read a provider key in this request.
+        retry = Provider(jobs, lambda: None).request_retry(profile_id, job_id, body)
+        return {'schema_version': 1, 'job': job_summary(retry),
+                'retry_of': jobs.retry_lineage(profile_id, retry.id),
+                'execution_available': False, 'execution_code': 'HANDLER_UNAVAILABLE',
+                'original_outcome': 'indeterminate'}
+
     @app.post('/api/workspace/profiles/{profile_id}/jobs/{job_id}/cancel')
     async def workspace_cancel(profile_id: str, job_id: str, request: Request):
         await workspace_input(request, Contract)
