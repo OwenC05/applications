@@ -149,9 +149,13 @@ class DomainRepository:
         return profile
 
     def revisions(self, db, owner):
-        self._ensure(db, owner)
+        # Authority checks also run in deferred read snapshots. Initialization
+        # belongs to writer-owned profile/bootstrap paths, never a revision read.
+        self.store._profile(db, owner)
         row = db.execute('SELECT metadata,facts,documents,consent FROM profile_revisions WHERE owner=?',
                          (owner,)).fetchone()
+        if row is None:
+            fail('CONFLICT', 'Canonical profile revisions are unavailable', 409)
         return c.RevisionVector(metadata=row[0], facts=row[1], documents=row[2], consent=row[3])
 
     def _check(self, db, owner, kind, expected):

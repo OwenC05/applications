@@ -233,6 +233,10 @@ or Chroma merely to enqueue, read or cancel a job.
 | --- | --- |
 | `POST /profiles/{id}/indexes` | `{schema_version:1,corpus:"facts"\|"documents",idempotency_key}`; `202` with `{schema_version:1,job}`. Repeating the same owned request returns its durable job. |
 | `POST /profiles/{id}/applications/{application_id}/research/{run_id}/indexes` | `{schema_version:1,idempotency_key,expected_input_revision,expected_research_revision}`; `202` with the exact scoped employer index job. Expected research is the published counter, not the run's pre-publication capture. |
+| `POST /profiles/{id}/applications/{application_id}/research/{run_id}/packets` | Strict packet request described below; `202` with the exact unpaid local packet job. Both current corpus indexes must already exist. |
+| `GET /profiles/{id}/applications/{application_id}/packets` | `{schema_version:1,batches:[...]}`; immutable stored batches with dynamic canonical-currentness reports. |
+| `GET .../applications/{application_id}/packets/{batch_id}` | Batch, publication/report digests, currentness and safe reason codes; no retrieval/model/provider execution. |
+| `GET .../packets/{batch_id}/questions/{question_id}` | Exact stored packet or explicit manual requirement, with currentness and support limitations. |
 | `GET /profiles/{id}/jobs` | `{schema_version:1,jobs:[...]}`; content-free summaries, not parameters, stage text or idempotency keys. |
 | `GET /profiles/{id}/jobs/{job_id}` | Same summary; another owner's job returns `404`. |
 | `POST .../jobs/{job_id}/cancel` | `{schema_version:1}`; cancellation request and current durable state. Already transmitted work is not recalled. |
@@ -257,7 +261,7 @@ attempt. Provider compatibility and paid drafting remain unqualified.
 
 Summaries expose job ID/owner/application/kind/state, bounded stage, captured
 revisions, fence/attempt count, cancellation flag, heartbeat/lease and generation
-cleanup-pending flag. The `index` and static `research` handlers are available. Workspace capability
+cleanup-pending flag. The `index`, static `research` and unpaid `packets` handlers are available. Workspace capability
 flags do not imply researched-drafting or browser readiness.
 
 Employer indexing requires the owned current complete, unexpired research head,
@@ -273,7 +277,41 @@ generation for all bounded query variants. Scope checks precede dense and BM25
 ranking, followed by within-corpus fusion, reranking and canonical re-resolution.
 Returned binding and full-canonical-hash references prove association/integrity,
 not semantic support. This is not a new HTTP GET that runs model retrieval, nor
-a stored packet/drafting capability.
+a drafting capability. Stored packet execution is a separate explicit job below.
+
+### Unpaid local evidence packets
+
+Packet POST accepts `schema_version:1`, a bounded `idempotency_key`,
+`expected_facts_revision`, `expected_input_revision`, `expected_research_revision`,
+optional `selections` (at most 100 `{source_id,unit_id,start,end}` code-point ranges),
+optional explicit `cover_letter_target`, `per_packet_budget` (1–6,000, default
+6,000) and `aggregate_budget` (1–24,000, default 24,000). No caller-supplied quote,
+criterion text, generation identity or inferred hiring priority is accepted.
+Cover-letter targets are writing questions with the reserved `cover_letter` ID,
+an explicit question/constraint origin and a word limit (default 400).
+
+Enqueue captures actual registered fact/employer generations without initializing
+models. Exact original POST replay precedes current-revision checks. The worker
+registers a database-only intent before composition, uses the fixed scoped hybrid
+indexes and local tokenizer, and publishes the immutable batch, integrity-bound
+compiler/binder omission report and job completion in one fenced transaction.
+Exact selected quotes not fully contained in any registered chunk are visibly
+omitted, never cropped into different requirements. No application-output revision is advanced.
+
+Inspection reports `current` for canonical dependency currentness only—not loaded
+model/Chroma readiness or semantic support. Intact historical batches can remain
+inspectable with `current:false`; corrupt publication associations fail closed.
+Always `semantic_support:"not_assessed"`, `review_eligible:false` and
+`browser_eligible:false`. GET does not build, query, tokenize, initialize retrieval
+services or call a provider. New facts/input/research or replacement generations
+can make a batch stale; metadata, consent, documents and output are not packet
+dependencies. Fact/source revocation conservatively forgets all owned packet
+derivatives; application deletion forgets only that application's packet content.
+A rejected packet operation can terminalize as `failed` / `packet_failed` under
+its exact still-current lease without reauthorizing stale inputs. Cancellation,
+expiry, reclamation, deleted scope or uncertain provider attempts cannot be
+overwritten. This failure-only path grants no publication or paid-call authority.
+These APIs do not enable paid drafting, semantic answer release or browser actions.
 
 `GET /api/evidence/status` reports `model_readiness:"not_checked_in_request"`;
 legacy `models_ready:false` must not be interpreted as a failed cache check.

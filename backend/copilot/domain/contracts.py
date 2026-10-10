@@ -451,7 +451,7 @@ class ReviewSnapshot(ApplicationOwned):
 class DurableJob(Owned):
     application_id: Identifier | None = None
     id: Identifier
-    kind: Literal['research', 'index', 'draft', 'assess', 'cleanup']
+    kind: Literal['research', 'index', 'packets', 'draft', 'assess', 'cleanup']
     stage: Text
     idempotency_key: Annotated[str, Field(min_length=1, max_length=200)]
     state: Literal['queued', 'running', 'completed', 'cancelled', 'failed', 'indeterminate']
@@ -465,7 +465,7 @@ class DurableJob(Owned):
 
     @model_validator(mode='after')
     def running_lease(self):
-        if self.kind in ('research', 'draft', 'assess') and self.application_id is None:
+        if self.kind in ('research', 'packets', 'draft', 'assess') and self.application_id is None:
             raise ValueError('Application job requires application scope')
         if self.state == 'running' and (not self.lease_owner or not self.lease_expires_at or self.fence < 1):
             raise ValueError('Running job requires leased fence')

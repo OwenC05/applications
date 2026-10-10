@@ -154,6 +154,36 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   restart persistence and deletion of one application without losing the other
   or personal evidence. All owned helpers were reaped and synthetic data removed.
   This does not enable a stored packet job, paid drafting or semantic answer release.
+- **S4 durable packet increment:** a distinct unpaid `packets` job captures actual
+  registered fact/employer generations and canonical application questions.
+  Database-only intents precede local hybrid composition; a fenced transaction
+  publishes one immutable batch, its integrity-bound selection/omission report
+  and job completion. Explicit selected employer quotes are re-resolved against
+  the actual generation; quotes not contained in one registered chunk are visibly
+  omitted rather than cropped or assigned invented evidence. Full questions,
+  manual requirements and optional explicit cover-letter targets retain their
+  constraints and shared local-tokenizer context budget.
+  Stored inspection performs no model/retrieval/provider initialization. It
+  distinguishes intact stale history from corrupt associations and reports
+  canonical currentness, not Chroma/model readiness or semantic support. Fact/source
+  revocation conservatively forgets owned packet derivatives; exact application
+  deletion preserves another application's and personal canonical data. Metadata,
+  consent, documents and application output are not packet dependencies. Paid
+  drafting, semantic quality, UI packet controls and S4 release gates remain pending.
+  Revision authority reads are SELECT-only; creation/bootstrap initializes canonical
+  counters, while missing counters fail closed. A packet-only failure transition
+  terminalizes an owned rejected job without granting publication authority or
+  overwriting cancelled, expired, reclaimed, deleted or paid-uncertain operations.
+  Independent code/architecture rereviews returned APPROVE/CLEAR. Fresh root
+  verification passed **808 Python tests with one privileged-port skip**, 108
+  Node tests, syntax checks for 25 JavaScript modules, Ruff and AST parsing.
+  The unmodified CLI worker and loopback API passed a synthetic two-application
+  flow using the actual pinned local embedding/reranking models and Chroma HTTP:
+  four corpus indexes, stored packet publication with selected quotes/omissions
+  and a cover-letter target, irrelevant metadata edits, exact restart inspection,
+  stale history/idempotency replay and revocation/isolation cleanup. Owned helpers
+  were reaped and synthetic storage removed. No paid/public-employer calls or
+  semantic-quality, Docker, friend-install or release qualification is implied.
 - **S6 data preview only:** `/ui/workspace/index.html` connects canonical Python
   onboarding, pending confirmations, application inputs, feedback, selected
   document import and hybrid quotation/citation inspection. Separate typed values,

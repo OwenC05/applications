@@ -12,6 +12,7 @@ from .contracts import EvidenceError
 from .domain import contracts as c
 from .domain.repository import DomainRepository, uid
 from .retrieval.packet_contracts import CorpusScope
+from .retrieval.packet_runtime_contracts import PacketParameters
 from .store import identifier
 
 
@@ -88,7 +89,7 @@ class Jobs:
         return revisions
 
     def enqueue(self, owner, kind, parameters, idempotency_key, application_id=None, *, transaction=None, request_hash=None):
-        if kind not in ('index', 'research', 'draft', 'assess', 'cleanup'):
+        if kind not in ('index', 'research', 'packets', 'draft', 'assess', 'cleanup'):
             error('INVALID_INPUT', 'Unknown job kind', 422)
         if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 200:
             error('INVALID_INPUT', 'Provide a bounded idempotency key', 422)
@@ -108,6 +109,17 @@ class Jobs:
                 if set(parameters) != {'corpus'} or parameters['corpus'] not in ('facts', 'documents') or application_id:
                     error('INVALID_INPUT', 'Index requires an explicitly selected profile corpus', 422)
                 dependencies = (parameters['corpus'],)
+        elif kind == 'packets':
+            try:
+                packet = PacketParameters.model_validate_json(encode(parameters))
+            except ValueError:
+                error('INVALID_INPUT', 'Invalid captured packet parameters', 422)
+            if (packet.profile_id, packet.application_id) != (owner, application_id):
+                error('INVALID_INPUT', 'Exact packet application scope required', 422)
+            if request_hash is not None and request_hash != packet.request_sha256:
+                error('INVALID_INPUT', 'Packet request digest mismatch', 422)
+            request_hash = packet.request_sha256
+            dependencies = ('facts', 'application_input', 'research')
         elif kind in ('research', 'draft', 'assess'):
             if not application_id:
                 error('INVALID_INPUT', 'Application scope required', 422)
@@ -129,6 +141,8 @@ class Jobs:
                 return self._job(db, old[0], owner)[0]
             if kind == 'index' and parameters['corpus'] == 'employer':
                 self.store.require_current_research(db, scope, self._now())
+            if kind == 'packets':
+                self._packet_current(db, packet, revisions)
             job = c.DurableJob(id=uid(), profile_id=owner, application_id=application_id,
                                kind=kind, stage='queued', idempotency_key=idempotency_key,
                                state='queued', revisions=revisions, fence=0)
@@ -136,6 +150,16 @@ class Jobs:
                        (job.id, owner, job.state, job.model_dump_json(), encode(parameters), encode(dependencies)))
             db.execute('INSERT INTO job_keys VALUES(?,?,?,?)', (owner, idempotency_key, job.id, request_hash))
             return job
+
+    def _packet_current(self, db, packet, revisions):
+        request = packet.request
+        if (revisions.facts, revisions.application_input, revisions.research) != (
+                request.expected_facts_revision, request.expected_input_revision, request.expected_research_revision):
+            error('CONFLICT', 'Packet captured revisions changed')
+        for binding in (packet.facts_generation, packet.employer_generation):
+            if not db.execute('SELECT 1 FROM generation_intents WHERE id=?', (binding.generation_id,)).fetchone():
+                error('CONFLICT', 'Packets require actual registered generations')
+            self.store.require_generation_binding(db, binding, self._now())
 
     def _create_warned_retry(self, db, prior, parameters, dependencies, body, request_hash):
         """Internal same-transaction insert after Provider verifies purpose/budget/scope.
@@ -245,6 +269,8 @@ class Jobs:
             scope = CorpusScope(profile_id=job.profile_id, corpus='employer', application_id=job.application_id,
                                 research_run_id=parameters['research_run_id'])
             self.store.require_current_research(db, scope, self._now())
+        if job.kind == 'packets':
+            self._packet_current(db, PacketParameters.model_validate_json(encode(parameters)), current)
         return job, parameters
 
     def heartbeat(self, job_id, worker_id, fence, lease_seconds=60):
@@ -310,5 +336,25 @@ class Jobs:
         with self.store._tx() as db:
             job, _ = self.assert_current(db, job_id, worker_id, fence)
             updated = job.model_copy(update={'state': state})
+            self._save(db, updated)
+            return updated
+
+    def fail_packet(self, job_id, worker_id, fence):
+        """Record unpaid packet failure without reauthorizing invalid inputs.
+
+        This grants no publication authority. A cancelled, expired, reclaimed or
+        deleted operation cannot be overwritten; paid uncertainty fails closed.
+        """
+        with self.store._tx() as db:
+            job, _, _ = self._job(db, job_id)
+            if (job.kind != 'packets' or job.state != 'running'
+                    or job.lease_owner != worker_id or job.fence != fence
+                    or job.cancellation_requested or job.lease_expires_at <= self._now()):
+                error('CONFLICT', 'Packet failure lease is no longer current')
+            self.domain._get(db, job.profile_id, job.application_id, 'application', c.ApplicationRecord)
+            if db.execute("SELECT 1 FROM provider_attempts WHERE job_id=? AND state IN ('prepared','indeterminate')",
+                          (job.id,)).fetchone():
+                error('CONFLICT', 'Uncertain provider attempt prevents unpaid failure transition')
+            updated = job.model_copy(update={'state': 'failed', 'stage': 'packet_failed'})
             self._save(db, updated)
             return updated

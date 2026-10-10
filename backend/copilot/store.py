@@ -361,6 +361,7 @@ class Store:
         p = Profile(str(uuid.uuid4()), name.strip(), list(dict.fromkeys(sectors)), 0)
         with self._tx() as db:
             db.execute('INSERT INTO profiles VALUES(?,?)', (p.id, json.dumps(asdict(p))))
+            db.execute('INSERT INTO profile_revisions(owner) VALUES(?)', (p.id,))
         return p
 
     def list_profiles(self):
@@ -510,10 +511,11 @@ class Store:
 
     def _corpus_revision(self, db, owner, corpus):
         corpus_name(corpus)
-        p = self._profile(db, owner)
-        db.execute('INSERT OR IGNORE INTO profile_revisions(owner,facts,documents) VALUES(?,?,?)',
-                   (owner, p.revision, p.revision))
-        return db.execute(f'SELECT {corpus} FROM profile_revisions WHERE owner=?', (owner,)).fetchone()[0]
+        self._profile(db, owner)
+        row = db.execute(f'SELECT {corpus} FROM profile_revisions WHERE owner=?', (owner,)).fetchone()
+        if row is None:
+            fail('CONFLICT', 'Canonical profile revisions are unavailable', 409)
+        return row[0]
 
     @staticmethod
     def scope_dependencies(scope):
@@ -1103,12 +1105,22 @@ class Store:
 
     def forget_jobs(self, db, owner, *, application_id=None, profile=False, affected=()):
         """Same-transaction derivative forgetting; uncertainty/reservations are never released."""
+        # Privacy forgetting is based on canonical owner/application record scope,
+        # never contingent on an intact retained job association. Orphaned packet
+        # plaintext and malformed/missing job IDs have no exemption.
+        clause = " AND json_extract(data,'$.application_id')=?" if application_id else ''
+        args = (owner, application_id) if application_id else (owner,)
+        for rid, kind in db.execute(
+                "SELECT id,kind FROM records WHERE owner=? AND kind IN ('workspace:packet_batch','workspace:packet_dependency','workspace:packet_intent')" + clause,
+                args).fetchall():
+            db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)', (rid, owner, kind))
+            db.execute('DELETE FROM records WHERE id=? AND owner=?', (rid, owner))
         if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'").fetchone():
             return
         for jid, serialized, parameters in db.execute('SELECT id,data,parameters FROM jobs WHERE owner=?', (owner,)).fetchall():
             job, options = json.loads(serialized), json.loads(parameters)
             dependent = (job.get('application_id') == application_id if application_id else
-                         profile or job['kind'] in ('draft', 'assess')
+                         profile or job['kind'] in ('draft', 'assess', 'packets')
                          or job['kind'] == 'index' and options.get('corpus') in affected)
             if not dependent:
                 continue
@@ -1121,6 +1133,8 @@ class Store:
                 job.update(state='indeterminate' if uncertain else 'cancelled', cancellation_requested=True,
                            stage='provider_unknown' if uncertain else 'scope_forgotten')
             job['idempotency_key'] = 'forgotten'
+            if job['kind'] == 'packets':
+                db.execute("UPDATE jobs SET dependencies='[]' WHERE id=?", (jid,))
             db.execute('DELETE FROM job_stages WHERE job_id=?', (jid,))
             db.execute('DELETE FROM job_keys WHERE job_id=?', (jid,))
             db.execute('UPDATE provider_attempts SET response=NULL WHERE job_id=?', (jid,))

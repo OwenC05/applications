@@ -19,7 +19,7 @@ def safe_code(error):
 
 
 class Worker:
-    def __init__(self, store, service_factory, *, lease_seconds=30, heartbeat_interval=None, research_factory=None):
+    def __init__(self, store, service_factory, *, lease_seconds=30, heartbeat_interval=None, research_factory=None, packet_factory=None):
         if type(lease_seconds) is not int or not 5 <= lease_seconds <= 300:
             raise ValueError('Worker lease must be 5 to 300 seconds')
         interval = heartbeat_interval if heartbeat_interval is not None else lease_seconds / 3
@@ -32,6 +32,8 @@ class Worker:
         self._service = None
         self._research = None
         self.research_factory = research_factory
+        self.packet_factory = packet_factory
+        self._packets = None
         self.stop = threading.Event()
         self.last_outcome = None
         self._last_emitted = None
@@ -50,6 +52,13 @@ class Worker:
             self._research = (self.research_factory(self.store, self.jobs) if self.research_factory
                               else ResearchService(self.store, jobs=self.jobs))
         return self._research
+
+    def packets(self):
+        if self._packets is None:
+            from .retrieval.packet_service import PacketService
+            self._packets = (self.packet_factory(self.store, self.jobs) if self.packet_factory
+                             else PacketService(self.store, self.service(), jobs=self.jobs))
+        return self._packets
 
     @contextmanager
     def heartbeat(self, job):
@@ -133,13 +142,18 @@ class Worker:
                         raise EvidenceError('HANDLER_UNAVAILABLE', 'Paid retry execution is not available in this worker', 503)
                     if job.kind == 'index':
                         self.service().run_index(job.id, self.worker_id, job.fence)
+                    elif job.kind == 'packets':
+                        self.packets().run_packets(job.id, self.worker_id, job.fence)
                     elif job.kind == 'research':
                         self.research().run_research(job.id, self.worker_id, job.fence)
                     else:
                         raise EvidenceError('HANDLER_UNAVAILABLE', 'No handler is available for this job', 503)
             except Exception as exc:
                 try:
-                    self.jobs.finish(job.id, self.worker_id, job.fence, 'failed')
+                    if job.kind == 'packets':
+                        self.jobs.fail_packet(job.id, self.worker_id, job.fence)
+                    else:
+                        self.jobs.finish(job.id, self.worker_id, job.fence, 'failed')
                 except EvidenceError as finish_error:
                     if finish_error.code not in ('CONFLICT', 'NOT_FOUND'):
                         heartbeat = {'state': 'failed', 'code': safe_code(finish_error)}

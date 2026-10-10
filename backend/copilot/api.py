@@ -17,6 +17,8 @@ from .documents import ingest
 from .domain.contracts import Contract, Revision, canonical_hash
 from .jobs import Jobs
 from .provider import Provider
+from .retrieval.packet_runtime_contracts import PacketRequest
+from .retrieval.packet_service import PacketService
 from .store import Store
 
 
@@ -89,6 +91,8 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
     service_lock = threading.Lock()
     jobs = Jobs(store)
     app.state.jobs = jobs
+    packets = PacketService(store, jobs=jobs)
+    app.state.packets = packets
     from .research.service import ResearchRequest, ResearchService
     research_service = ResearchService(store, jobs=jobs)
     app.state.research = research_service
@@ -252,7 +256,7 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
                                                        (job.profile_id, job.id)).fetchone())
             result['cleanup_pending'] = result['cleanup_pending'] or bool(db.execute("SELECT 1 FROM research_intents WHERE owner=? AND job_id=? AND state='cleanup_pending' LIMIT 1", (job.profile_id, job.id)).fetchone())
         if result['stage'] not in {'queued', 'started', 'index_published', 'cancelled',
-                                  'research_published', 'scope_forgotten', 'missing_scope', 'stale_inputs', 'lease_limit', 'provider_unknown'}:
+                                  'research_published', 'packets_published', 'scope_forgotten', 'missing_scope', 'stale_inputs', 'lease_limit', 'provider_unknown'}:
             result['stage'] = 'working'
         return result
 
@@ -310,6 +314,25 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
                 job = jobs.enqueue(profile_id, 'index', {'corpus': 'employer', 'research_run_id': run_id},
                     body.idempotency_key, application_id, transaction=db, request_hash=request_hash)
         return {'schema_version': 1, 'job': job_summary(job)}
+
+    @app.post(research_base + '/{run_id}/packets', status_code=202)
+    async def workspace_packets(profile_id: str, application_id: str, run_id: str, request: Request):
+        body = await workspace_input(request, PacketRequest)
+        return {'schema_version': 1, 'job': job_summary(packets.enqueue(profile_id, application_id, run_id, body))}
+
+    packet_base = '/api/workspace/profiles/{profile_id}/applications/{application_id}/packets'
+
+    @app.get(packet_base)
+    def workspace_packet_list(profile_id: str, application_id: str):
+        return packets.list(profile_id, application_id)
+
+    @app.get(packet_base + '/{batch_id}')
+    def workspace_packet_detail(profile_id: str, application_id: str, batch_id: str):
+        return packets.detail(profile_id, application_id, batch_id)
+
+    @app.get(packet_base + '/{batch_id}/questions/{question_id}')
+    def workspace_packet_question(profile_id: str, application_id: str, batch_id: str, question_id: str):
+        return packets.question(profile_id, application_id, batch_id, question_id)
 
     @app.get('/api/workspace/profiles/{profile_id}/jobs')
     def workspace_jobs(profile_id: str):
