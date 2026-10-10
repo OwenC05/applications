@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 from .config import Settings
 from .contracts import Citation, EvidenceError, Span
 from .documents import ingest
-from .domain.contracts import Contract
+from .domain.contracts import Contract, Revision, canonical_hash
 from .jobs import Jobs
 from .provider import Provider
 from .store import Store
@@ -27,6 +27,12 @@ class Input(BaseModel):
 class IndexInput(Contract):
     corpus: Literal['facts', 'documents']
     idempotency_key: str = Field(min_length=1, max_length=200)
+
+
+class EmployerIndexInput(Contract):
+    idempotency_key: str = Field(min_length=1, max_length=200)
+    expected_input_revision: Revision
+    expected_research_revision: Revision
 
 
 class ProfileInput(Input):
@@ -280,6 +286,29 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
     async def workspace_index(profile_id: str, request: Request):
         body = await workspace_input(request, IndexInput)
         job = jobs.enqueue(profile_id, 'index', {'corpus': body.corpus}, body.idempotency_key)
+        return {'schema_version': 1, 'job': job_summary(job)}
+
+    @app.post(research_base + '/{run_id}/indexes', status_code=202)
+    async def workspace_employer_index(profile_id: str, application_id: str, run_id: str,
+                                       request: Request):
+        body = await workspace_input(request, EmployerIndexInput)
+        request_hash = canonical_hash({'profile_id': profile_id, 'application_id': application_id,
+            'research_run_id': run_id, 'request': body.model_dump(mode='json')})
+        with store._tx() as db:
+            # Exact original request replay precedes current-input CAS/eligibility.
+            old = db.execute('SELECT job_id,request_sha256 FROM job_keys WHERE owner=? AND key=?',
+                             (profile_id, body.idempotency_key)).fetchone()
+            if old:
+                if old[1] != request_hash:
+                    raise EvidenceError('CONFLICT', 'Idempotency key belongs to a different request', 409)
+                job = jobs._job(db, old[0], profile_id)[0]
+            else:
+                revisions = jobs.capture(db, profile_id, application_id)
+                if (revisions.application_input != body.expected_input_revision
+                        or revisions.research != body.expected_research_revision):
+                    raise EvidenceError('CONFLICT', 'Application inputs or research changed', 409)
+                job = jobs.enqueue(profile_id, 'index', {'corpus': 'employer', 'research_run_id': run_id},
+                    body.idempotency_key, application_id, transaction=db, request_hash=request_hash)
         return {'schema_version': 1, 'job': job_summary(job)}
 
     @app.get('/api/workspace/profiles/{profile_id}/jobs')

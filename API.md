@@ -232,6 +232,7 @@ or Chroma merely to enqueue, read or cancel a job.
 | Route | Input / result |
 | --- | --- |
 | `POST /profiles/{id}/indexes` | `{schema_version:1,corpus:"facts"\|"documents",idempotency_key}`; `202` with `{schema_version:1,job}`. Repeating the same owned request returns its durable job. |
+| `POST /profiles/{id}/applications/{application_id}/research/{run_id}/indexes` | `{schema_version:1,idempotency_key,expected_input_revision,expected_research_revision}`; `202` with the exact scoped employer index job. Expected research is the published counter, not the run's pre-publication capture. |
 | `GET /profiles/{id}/jobs` | `{schema_version:1,jobs:[...]}`; content-free summaries, not parameters, stage text or idempotency keys. |
 | `GET /profiles/{id}/jobs/{job_id}` | Same summary; another owner's job returns `404`. |
 | `POST .../jobs/{job_id}/cancel` | `{schema_version:1}`; cancellation request and current durable state. Already transmitted work is not recalled. |
@@ -258,6 +259,21 @@ Summaries expose job ID/owner/application/kind/state, bounded stage, captured
 revisions, fence/attempt count, cancellation flag, heartbeat/lease and generation
 cleanup-pending flag. The `index` and static `research` handlers are available. Workspace capability
 flags do not imply researched-drafting or browser readiness.
+
+Employer indexing requires the owned current complete, unexpired research head,
+matching application inputs, company/exact-role coverage and original-source
+ownership/integrity. Repeating the exact original request/key returns its job
+before current-revision checks; changed scope or payload conflicts. Enqueue does
+not initialize models/Chroma or launch research. The existing worker builds the
+registered employer generation; failed/stale producers cannot publish over a
+current eligible generation. Raw personal documents are not employer evidence.
+
+The internal `EvidenceService.search_scoped` consumes one exact fact or employer
+generation for all bounded query variants. Scope checks precede dense and BM25
+ranking, followed by within-corpus fusion, reranking and canonical re-resolution.
+Returned binding and full-canonical-hash references prove association/integrity,
+not semantic support. This is not a new HTTP GET that runs model retrieval, nor
+a stored packet/drafting capability.
 
 `GET /api/evidence/status` reports `model_readiness:"not_checked_in_request"`;
 legacy `models_ready:false` must not be interpreted as a failed cache check.
@@ -320,7 +336,8 @@ Remaining source-linked employer text also prevents a cleanup-complete receipt.
 `ResearchInput` fields and a mandatory current-authority callback. It anonymously
 acquires only explicit company/vacancy/supporting URLs on exact confirmed hosts.
 Original bytes, canonical text/hashes and Unicode identity spans are persisted
-by the fenced handler; they are not indexed or treated as instructions.
+by the fenced handler; research publication does not automatically index them,
+and their text is never treated as instructions.
 Private facts, typed values, cookies and user-pasted JD are not input channels.
 
 The initial adapter requires unique exact `Company:`, `Employer:`, `Role:`,
@@ -338,6 +355,6 @@ socket-buffer traffic; it is not a whole-network byte measurement.
 Authority is checked before/after acquisitions and before return. In-flight
 anonymous GETs cannot be recalled; accepting/publishing results still requires
 the stored current job/fence/revision checks. There is no discovery/search agent,
-renderer, general ATS identity adapter, employer index or application drafting
-integration yet. This static preview does not complete S3 or enable tailored
+renderer, general ATS identity adapter or application drafting integration yet.
+Employer indexing is available through the separate explicit route above. This static preview does not complete S3 or enable tailored
 answer generation. Unsupported layouts remain visibly incomplete.

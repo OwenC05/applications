@@ -4,16 +4,37 @@ import json
 import math
 import shutil
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
-from copilot.contracts import Chunk, EvidenceError, Fact, Hit, Manifest, decode_manifest
+from copilot.contracts import (
+    Chunk,
+    EmployerChunk,
+    EmployerManifest,
+    EmployerUnit,
+    EvidenceError,
+    Fact,
+    Hit,
+    Manifest,
+    decode_chunk,
+    decode_manifest,
+)
+from copilot.domain.contracts import EvidenceReference, SourceSpan
 from copilot.generations import Generations, new_generation
 from copilot.jobs import Jobs
 from copilot.retrieval import sparse
 from copilot.retrieval.dense import ids_checksum
+from copilot.retrieval.packet_contracts import CorpusScope, GenerationBinding
 from copilot.store import identifier
 
 CHUNKER_VERSION = "canonical-offset-v1-220-30"
+
+
+@dataclass(frozen=True)
+class ScopedSearchResult:
+    binding: GenerationBinding
+    hits: tuple[dict, ...]
+    references: tuple[EvidenceReference, ...]
 
 
 class EvidenceService:
@@ -27,7 +48,8 @@ class EvidenceService:
     def _chunk(self, record):
         offsets = self.models.tokenize_offsets(record.text)
         result = []
-        corpus = "facts" if isinstance(record, Fact) else "documents"
+        corpus = "facts" if isinstance(record, Fact) else "employer" if isinstance(record, EmployerUnit) else "documents"
+        scoped = dict(application_id=record.application_id, research_run_id=record.research_run_id) if corpus == "employer" else {}
         for index in range(0, len(offsets), 190):
             start = offsets[index][0]
             end = offsets[min(index + 220, len(offsets)) - 1][1]
@@ -36,10 +58,11 @@ class EvidenceService:
             unit_id = None if corpus == "facts" else record.id
             record_id = record.id if corpus == "facts" else record.source_id
             identity = [record.profile_id, corpus, record_id, unit_id, start, end,
-                        digest, CHUNKER_VERSION]
+                        digest, CHUNKER_VERSION, *scoped.values()]
             chunk_id = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
-            result.append(Chunk(chunk_id, record.profile_id, corpus, record_id, unit_id,
-                                start, end, text, digest))
+            projection = EmployerChunk if corpus == "employer" else Chunk
+            result.append(projection(chunk_id, record.profile_id, corpus, record_id, unit_id,
+                                     start, end, text, digest, **scoped))
             if index + 220 >= len(offsets):
                 break
         return result
@@ -63,16 +86,20 @@ class EvidenceService:
                     generation_id, fingerprint, CHUNKER_VERSION)
                 registered = True
                 snapshot = self.store.chunk_capture(intent.profile_id, intent.corpus,
-                    getattr(intent.revisions, intent.corpus), values, self._chunk)
+                    self.generations.revision(intent), values, self._chunk)
                 self.generations.stage(generation_id, worker_id, fence, snapshot)
                 chunks = list(snapshot.chunks)
-                manifest = Manifest(generation_id, intent.profile_id, intent.corpus, snapshot.revision,
+                projection = EmployerManifest if intent.corpus == "employer" else Manifest
+                scoped = dict(application_id=intent.application_id, research_run_id=intent.research_run_id) if intent.corpus == "employer" else {}
+                manifest = projection(generation_id, intent.profile_id, intent.corpus, snapshot.revision,
                     fingerprint, CHUNKER_VERSION, ids_checksum([c.id for c in chunks]),
-                    len(chunks), intent.dense_collection, intent.sparse_relpath)
+                    len(chunks), intent.dense_collection, intent.sparse_relpath, **scoped)
                 directory = self._generation_path(intent)
                 if chunks:
                     vectors = self.models.embed([c.text for c in chunks])
                     self._validate_vectors(vectors, len(chunks))
+                    if self.models.fingerprint != fingerprint:
+                        raise EvidenceError("MODEL_NOT_READY", "Model changed during indexing", 503)
                     self.generations.guard(generation_id, worker_id, fence)
                     self.generations.begin_dense(generation_id, worker_id, fence)
                     try:
@@ -84,12 +111,23 @@ class EvidenceService:
                     self.generations.dense_result(generation_id, fence, True)
                     self.generations.guard(generation_id, worker_id, fence)
                     sparse.create(directory, chunks, fingerprint)
-                    self.dense.verify(intent.dense_collection, [c.id for c in chunks], fingerprint)
-                    sparse.load(directory, [c.id for c in chunks], fingerprint)
+                    if intent.corpus == "employer":
+                        scope = self.generations.scope(intent)
+                        self.dense.verify(intent.dense_collection, [c.id for c in chunks], fingerprint,
+                                          scope=scope, generation_id=generation_id,
+                                          records={c.id: c.record_id for c in chunks})
+                        sparse.load(directory, [c.id for c in chunks], fingerprint,
+                                    scope=scope, generation_id=generation_id,
+                                    records=[c.record_id for c in chunks])
+                    else:
+                        self.dense.verify(intent.dense_collection, [c.id for c in chunks], fingerprint)
+                        sparse.load(directory, [c.id for c in chunks], fingerprint)
                 else:
                     self.generations.guard(generation_id, worker_id, fence)
                     directory.mkdir()
                     (directory / 'empty.json').write_text(json.dumps({'generation': generation_id}))
+                if self.models.fingerprint != fingerprint:
+                    raise EvidenceError("MODEL_NOT_READY", "Model changed during indexing", 503)
                 return self.generations.publish(generation_id, worker_id, fence, manifest)
         except Exception as original:
             try:
@@ -173,6 +211,127 @@ class EvidenceService:
                 or any(not math.isfinite(float(x)) for v in vectors for x in v)):
             raise EvidenceError("MODEL_NOT_READY", "Embedding output failed validation", 503)
 
+    def search_scoped(self, scope, query_variants, *, binding=None, source_ids=None, limit=8):
+        """One canonical generation for every bounded variant, never cross-scope ranking."""
+        if not isinstance(scope, CorpusScope) or scope.corpus not in ('facts', 'employer'):
+            raise EvidenceError('INVALID_INPUT', 'Scoped retrieval requires facts or employer scope')
+        if (not isinstance(query_variants, (list, tuple)) or not 1 <= len(query_variants) <= 4
+                or any(not isinstance(q, str) or not q.strip() for q in query_variants)
+                or type(limit) is not int or not 1 <= limit <= 8 or source_ids is not None):
+            raise EvidenceError('INVALID_INPUT', 'Provide 1 to 4 queries and a result limit of 1 to 8')
+        # Freeze caller-owned input before any blocking tokenizer/model work.
+        variants = tuple(query_variants)
+        for query in variants:
+            if len(self.models.tokenize_offsets(query)) > 128:
+                raise EvidenceError('LIMIT_EXCEEDED', 'Query exceeds 128 tokens; shorten it')
+        fingerprint = self.models.fingerprint
+        with self.store._read() as db:
+            manifest = self.store.active_scoped_manifest(db, scope, self.jobs._now())
+            if manifest is None:
+                raise EvidenceError('INDEX_NOT_READY', 'Build the selected corpus index first', 503)
+            captured = GenerationBinding(generation_id=manifest.generation_id, scope=scope,
+                revision=manifest.revision, model_fingerprint=manifest.model_fingerprint,
+                chunker_version=manifest.chunker_version, chunk_checksum=manifest.chunk_ids_sha256)
+            if binding is not None and binding != captured:
+                raise EvidenceError('CONFLICT', 'Requested generation is no longer current', 409)
+            self.store.require_generation_binding(db, captured, self.jobs._now())
+            revision, values = self.store.capture_scoped_sources(db, scope, self.jobs._now())
+            rows = db.execute('SELECT data FROM generation_chunks WHERE generation_id=? AND owner=? ORDER BY id',
+                              (captured.generation_id, scope.profile_id)).fetchall()
+            if not rows and scope.corpus == 'facts' and not db.execute(
+                    'SELECT 1 FROM generation_intents WHERE id=?', (captured.generation_id,)).fetchone():
+                rows = db.execute("SELECT data FROM records WHERE owner=? AND kind='chunk:facts' ORDER BY id",
+                                  (scope.profile_id,)).fetchall()
+            chunks = [decode_chunk(json.loads(row[0])) for row in rows]
+        self.store.verify_scoped_sources(scope, values)
+        if fingerprint != manifest.model_fingerprint or manifest.chunker_version != CHUNKER_VERSION:
+            raise EvidenceError('INDEX_NOT_READY', 'Model or chunker changed; rebuild required', 503)
+        canonical = {(v['unit']['source_id'], v['unit']['id']): v['unit'] for v in values} if scope.corpus == 'employer' else {(v['id'], None): v for v in values}
+        ids = [c.id for c in chunks]
+        if len(ids) != manifest.chunk_count or ids_checksum(ids) != manifest.chunk_ids_sha256:
+            raise EvidenceError('INDEX_NOT_READY', 'Canonical index snapshot mismatch', 503)
+        for chunk in chunks:
+            record = canonical.get((chunk.record_id, chunk.unit_id))
+            if (record is None or chunk.profile_id != scope.profile_id or chunk.corpus != scope.corpus
+                    or (scope.corpus == 'employer' and (chunk.application_id, chunk.research_run_id)
+                        != (scope.application_id, scope.research_run_id))
+                    or not 0 <= chunk.start < chunk.end <= len(record['text'])
+                    or chunk.text != record['text'][chunk.start:chunk.end]
+                    or hashlib.sha256(chunk.text.encode()).hexdigest() != chunk.text_sha256):
+                raise EvidenceError('INDEX_NOT_READY', 'Canonical chunk scope/integrity mismatch', 503)
+        directory = self._manifest_path(manifest)
+        scores, dense_ranks, sparse_ranks = {}, {}, {}
+        if chunks:
+            # Verify BOTH complete branch identities before either branch may rank.
+            self.dense.verify(manifest.dense_collection, ids, fingerprint,
+                              scope=scope, generation_id=captured.generation_id,
+                              records={c.id: c.record_id for c in chunks})
+            engine, meta = sparse.load(directory, ids, fingerprint,
+                                      scope=scope, generation_id=captured.generation_id,
+                                      records=[c.record_id for c in chunks])
+            vectors = self.models.embed(list(variants))
+            self._validate_vectors(vectors, len(variants))
+            self.store.verify_scoped_sources(scope, values)
+            for query, vector in zip(variants, vectors, strict=True):
+                dense_ids = self.dense.query(manifest.dense_collection, vector, min(30, len(ids)),
+                                            scope=scope, generation_id=captured.generation_id)
+                sparse_ids = sparse.query(engine, meta, query, 30)
+                if not set(dense_ids + sparse_ids) <= set(ids):
+                    raise EvidenceError('INDEX_NOT_READY', 'Index returned ineligible evidence', 503)
+                for branch, ranks in ((dense_ids, dense_ranks), (sparse_ids, sparse_ranks)):
+                    for rank, key in enumerate(branch, 1):
+                        ranks[key] = min(ranks.get(key, rank), rank)
+                        scores[key] = scores.get(key, 0.) + 1 / (60 + rank)
+        else:
+            self._ids(manifest)  # Empty generations still require their registered artifact.
+        mapping = {c.id: c for c in chunks}
+        fused = sorted(scores, key=lambda key: (-scores[key], key))[:40]
+        rerank = {key: 0. for key in fused}
+        for query in variants:
+            if not fused:
+                break
+            result = self.models.rerank(query, [mapping[key].text for key in fused])
+            if len(result) != len(fused) or any(not math.isfinite(float(v)) for v in result):
+                raise EvidenceError('MODEL_NOT_READY', 'Reranker output failed validation', 503)
+            for key, score in zip(fused, result, strict=True):
+                rerank[key] += float(score) / len(variants)
+        ranked = sorted(fused, key=lambda key: (-rerank[key], -scores[key], key))[:limit]
+        references = []
+        hits = []
+        for key in ranked:
+            chunk = mapping[key]
+            reference = EvidenceReference(profile_id=scope.profile_id,
+                kind='confirmed_fact' if scope.corpus == 'facts' else 'employer',
+                application_id=scope.application_id, research_run_id=scope.research_run_id,
+                generation_id=captured.generation_id,
+                span=SourceSpan(record_id=chunk.record_id, unit_id=chunk.unit_id,
+                    start=chunk.start, end=chunk.end, excerpt=chunk.text,
+                    text_sha256=canonical[(chunk.record_id, chunk.unit_id)]['text_sha256']))
+            references.append(reference)
+            hits.append({'chunk': chunk, 'reference': reference, 'dense_rank': dense_ranks.get(key),
+                         'bm25_rank': sparse_ranks.get(key), 'rrf_score': scores[key],
+                         'rerank_score': rerank[key]})
+        # IO receipt verification is outside the final writer; equality recapture,
+        # live eligibility and reference resolution are one final atomic check.
+        if chunks:
+            self.dense.verify(manifest.dense_collection, ids, fingerprint,
+                              scope=scope, generation_id=captured.generation_id,
+                              records={c.id: c.record_id for c in chunks})
+            sparse.load(directory, ids, fingerprint, scope=scope, generation_id=captured.generation_id,
+                        records=[c.record_id for c in chunks])
+        self.store.verify_scoped_sources(scope, values)
+        if self.models.fingerprint != fingerprint:
+            raise EvidenceError('INDEX_NOT_READY', 'Model changed during retrieval', 503)
+        with self.store._tx() as db:
+            now = self.jobs._now()
+            self.store.require_generation_binding(db, captured, now)
+            current_revision, current_values = self.store.capture_scoped_sources(db, scope, now)
+            if current_revision != revision or current_values != values:
+                raise EvidenceError('CONFLICT', 'Canonical sources changed during retrieval', 409)
+            for reference in references:
+                self.store.resolve_evidence_reference(db, captured, reference, now)
+        return ScopedSearchResult(captured, tuple(hits), tuple(references))
+
     def search(self, profile_id, corpus, query, source_ids=None, limit=8):
         if corpus not in ("facts", "documents") or not isinstance(query, str) or not query.strip():
             raise EvidenceError("INVALID_INPUT", "Choose a corpus and enter a query")
@@ -253,6 +412,8 @@ class EvidenceService:
                 intent = None
         if intent is not None:
             return self._generation_path(intent)
+        if manifest.corpus == "employer":
+            raise EvidenceError("INDEX_NOT_READY", "Employer registration is unavailable", 503)
         # Version-1 manifests predate intents; recognize only their original nested path.
         expected = Path(manifest.profile_id) / manifest.generation_id
         return self._anchored_path(manifest.sparse_relpath, expected, 'INDEX_NOT_READY')

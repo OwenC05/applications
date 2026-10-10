@@ -7,7 +7,7 @@ import bm25s
 import numpy as np
 
 from copilot.contracts import EvidenceError
-from copilot.retrieval.dense import ids_checksum
+from copilot.retrieval.dense import ids_checksum, scope_metadata
 
 
 def file_hash(path):
@@ -22,17 +22,29 @@ def create(directory: Path, chunks, fingerprint):
                  show_progress=False)
     engine.save(str(directory))
     files = {p.name: file_hash(p) for p in directory.iterdir() if p.is_file()}
-    (directory / "manifest.json").write_text(json.dumps({"ids": ids,
+    scope = {"profile_id": chunks[0].profile_id, "corpus": chunks[0].corpus,
+             "generation_id": directory.name}
+    if chunks[0].corpus == "employer":
+        scope.update(application_id=chunks[0].application_id,
+                     research_run_id=chunks[0].research_run_id)
+    (directory / "manifest.json").write_text(json.dumps({**scope, "ids": ids,
         "records": [c.record_id for c in chunks], "fingerprint": fingerprint,
         "ids_checksum": ids_checksum(ids), "files": files}, sort_keys=True))
 
 
-def load(directory: Path, ids, fingerprint):
+def load(directory: Path, ids, fingerprint, *, scope=None, generation_id=None, records=None):
     try:
         manifest = json.loads((directory / "manifest.json").read_text())
         if (manifest["ids"] != ids or manifest["fingerprint"] != fingerprint
                 or manifest["ids_checksum"] != ids_checksum(ids)):
             raise ValueError("manifest mismatch")
+        if scope is not None and any(manifest.get(k) != v
+                for k, v in scope_metadata(scope, generation_id).items()):
+            raise ValueError("scope mismatch")
+        if records is not None and manifest["records"] != records:
+            raise ValueError("canonical record mismatch")
+        if len(manifest["records"]) != len(ids):
+            raise ValueError("record association mismatch")
         for filename, digest in manifest["files"].items():
             path = (directory / filename).resolve()
             if not path.is_relative_to(directory.resolve()) or file_hash(path) != digest:

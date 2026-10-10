@@ -104,8 +104,17 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   The synthetic nonexistent role correctly remained **incomplete and ineligible**:
   the narrow adapter did not invent a vacancy match. This proves bounded static
   integration, not hiring quality or general site support.
-  No discovery/search agent, renderer or employer index is connected;
+  No discovery/search agent or renderer is connected; employer indexing is
+  described in the separate S4 increment below;
   **S3 remains incomplete**.
+- **S3 quote-criteria increment:** a pure unpaid compiler reconstructs explicitly
+  selected employer excerpts as immutable, scope-bound candidates. It preserves
+  exact wording, negation, numbers and Unicode, checks full canonical hashes and
+  reports omitted/unsupported spans and 20-criterion/2,000-code-point limits.
+  Candidates do not invent hiring priorities, generation IDs or sourced-rubric
+  readiness. The compiler performs no acquisition, original-byte verification,
+  stored authorization, relevance selection or semantic assessment; runtime
+  selection, persistence and generation-bound rubric binding remain pending.
 - **S4 preparation only:** a bounded query compiler keeps the full question and
   its negation in every variant, discloses omitted criteria, and asks for an
   explicit split rather than truncating oversized questions. Twenty-two tests
@@ -128,6 +137,23 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   synthetic, **not actual employer indexing/ranking**. Strict packet envelopes and
   a pure dependency-injected composer are also reviewed; stored packet execution,
   semantic support and the remaining S4 quality gates are still pending.
+- **S4 scoped retrieval increment:** the existing worker can build exact employer
+  generations through an explicit application/run index POST. Dense collection
+  and record metadata, sparse manifests and canonical chunks bind the same scope,
+  IDs and model. Internal scoped search captures one eligible generation for up
+  to four query variants, verifies both branches before ranking, fuses/reranks
+  within a corpus and re-resolves full-canonical-hash spans after final original
+  integrity/currentness checks. Existing personal search remains available.
+  Synthetic-model tests use actual Chroma/BM25 and exercise isolation, mutation,
+  cancellation/deletion, stale heads and the pure composer interface. Independent
+  code and architecture reviews approved this bounded increment. Fresh full
+  verification passed **731 Python tests with one privileged-port skip**, 108
+  Node tests and syntax checks across 25 modules. A separate actual pinned-model,
+  Chroma HTTP and API/worker smoke built two same-owner/company employer indexes,
+  facts and documents, then verified scoped retrieval, the pure composer,
+  restart persistence and deletion of one application without losing the other
+  or personal evidence. All owned helpers were reaped and synthetic data removed.
+  This does not enable a stored packet job, paid drafting or semantic answer release.
 - **S6 data preview only:** `/ui/workspace/index.html` connects canonical Python
   onboarding, pending confirmations, application inputs, feedback, selected
   document import and hybrid quotation/citation inspection. Separate typed values,
