@@ -116,6 +116,18 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   support-first ordering are disclosed; no evaluation metadata belongs in model
   context. Runtime packets, measured ranking/abstention repair and human quality
   gates remain pending, so **S4 is not complete**.
+- **S4 lifecycle increment:** employer generation intents, canonical captures,
+  chunk projections, references and cleanup extend the existing machinery with
+  exact owner/application/run scope. Current-head eligibility uses the published
+  research counter and the complete registered source graph. Original bytes and
+  device/inode proof are checked outside writer transactions, followed by canonical
+  recapture. Employer manifests cannot use personal legacy recovery or reconstruct
+  missing dense-write acknowledgements on restart. Independent code/architecture
+  review prompted two failing regressions before repair. Thirty-four scoped tests
+  and the full backend passed; employer acknowledgements in lifecycle tests are
+  synthetic, **not actual employer indexing/ranking**. Strict packet envelopes and
+  a pure dependency-injected composer are also reviewed; stored packet execution,
+  semantic support and the remaining S4 quality gates are still pending.
 - **S6 data preview only:** `/ui/workspace/index.html` connects canonical Python
   onboarding, pending confirmations, application inputs, feedback, selected
   document import and hybrid quotation/citation inspection. Separate typed values,
@@ -125,9 +137,22 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   issues were repaired. Seventeen Node regressions, four Python UI tests and actual
   synthetic browser flows passed, including stale CAS and delayed-response races.
   The complete Node suite passes 90 tests; syntax checks cover 21 modules. The
-  preview preserves the default evidence page and Node assets. Job/research/draft/
-  review integration, a full stable-ID question editor, full accessibility audit
+  preview preserves the default evidence page and Node assets. Draft/review
+  integration, a full stable-ID question editor, full accessibility audit
   and release qualification remain pending; **this does not complete S6**.
+- **S6 activity increment:** selected-application and related profile index jobs,
+  explicit cancellation/status refresh, profile-wide unknown-price usage and
+  stored static-research history/run/source inspection are connected. Separate
+  request slots suppress superseded successes/errors without replacing forms or
+  acknowledging edits. Actual synthetic local-API browser checks verified dirty
+  buffers, focus/caret, source/run/owner races, literal hostile text and bounded
+  Unicode previews. Browser QA found long hash/JSON overflow; a scoped wrapping
+  rule and regression repaired it at 375, 768 and 1280 pixels. The full Node suite
+  passes **108 tests**, with 25 modules syntax-checked; the full backend passes
+  **638 tests, one privileged-port skip**, using pinned local models and an owned
+  Chroma HTTP fixture. No research-launch, paid retry, drafting, review or browser
+  execution control is added. This is bounded inspection evidence, not full S6,
+  accessibility, Docker or friend-installation qualification.
 
 ## Qualification boundaries
 

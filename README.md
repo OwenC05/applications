@@ -92,8 +92,12 @@ selected legacy-import dry runs, export and deletion status. No private document
 are discovered automatically, and generated/history text never becomes a fact
 without confirmation.
 
-Cloud research/drafting, job controls, application review and browser actions
-are **not available in this preview**. Existing question text/order cannot yet be
+Application activity offers explicit job/status/cancellation refresh, profile-wide
+usage and stored static-research history/source inspection. Refreshing these panes
+preserves unsaved application inputs; historical completeness is not current
+eligibility, and stored hashes are not semantic support. Cloud/research launch,
+drafting, paid retry, application review and browser actions are **not available
+in this preview**. Existing question text/order cannot yet be
 changed in its line editor: it refuses changes rather than reassigning IDs or
 constraints. Saved-state JSON export is not a qualified full backup. Independent
 review and synthetic actual-browser flows cover this component, not full S6,

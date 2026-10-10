@@ -189,6 +189,9 @@ button:disabled {
   padding-top:16px;
   margin-top:16px
 }
+.application-activity {
+  overflow-wrap:anywhere
+}
 .entry p,.entry blockquote {
   white-space:pre-wrap;
   overflow-wrap:anywhere

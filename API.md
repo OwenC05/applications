@@ -200,7 +200,13 @@ revocation is not a promise of forensic erasure or deletion of external backups.
 `GET /ui/workspace/index.html` serves the additive S6 data preview, not a replacement
 for `/` or the Node frontend. It uses the versioned workspace/evidence routes
 above with the boot token, same-origin requests and explicit source selection.
-No research/draft/job/browser controls or qualified capability are inferred.
+Application activity connects existing job/status/cancel/usage and static research
+history/run/source GET routes with explicit refresh, not background polling.
+Activity updates do not reload profile data, replace input/history forms or
+acknowledge edits. Current-head eligibility and historical completeness remain
+separate; canonical source text is bounded and stored hashes do not establish
+semantic support. There are no research-launch, paid-retry, draft, review or
+browser controls, and no full workflow qualification is inferred.
 
 Owner/view epochs and per-pane request sequences discard superseded read/error
 responses. A successful non-destructive save acknowledges only its unchanged

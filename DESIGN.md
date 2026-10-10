@@ -66,6 +66,25 @@ character limits use code points, not UTF-16 indexes. Keyboard flows, hostile
 synthetic fixtures and 375/768/1280px screenshots are implementation gates,
 not evidence already supplied by this design document.
 
+### Bounded application-activity preview
+
+The published job/status/cancel/usage and static-research inspection contracts
+may be connected before drafting. Add separate read-only activity containers
+inside application detail; refreshing them must not reload the profile, replace
+input/history forms or acknowledge edits. Prefer explicit refresh controls for
+this bounded increment over background polling. Retire independent jobs, usage,
+run and source request slots on context or selection changes; suppress stale
+successes and errors. Preserve keyboard focus and active edit buffers.
+
+Show durable cancellation requests separately from terminal cancellation, and
+retain warnings about already transmitted work. Profile-wide reserved/reported/
+unknown usage is not a per-application monetary price. Static source history
+separates current-head eligibility from a historical complete state, displays
+provenance/hashes/freshness/gaps, and renders bounded canonical text safely.
+Neither a stored hash nor an eligible research run establishes semantic support.
+No research-launch, paid retry, drafting, review or browser action is introduced
+by this inspection increment. Unqualified capabilities stay unavailable.
+
 ## Open questions
 - [ ] Later browser autofill platform coverage; owner product; out of current milestone.
 - [ ] Later authenticated hosted product; owner product; no impact on local-first implementation.

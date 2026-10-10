@@ -1,6 +1,10 @@
 import {createClient, EditBuffers, RequestGate, externalUrl, evidenceDeletionNotice} from './client.js';
 import {node, field, section, text, link} from './dom.js';
 import {writingQuestions, sourcePreview} from './questions.js';
+import {activityPane} from './activity.js';
+
+let activity = null;
+function retireActivity() { activity?.retire(); activity = null; }
 
 const $ = id => document.getElementById(id);
 const routes = ['overview', 'opportunities', 'interview', 'brain', 'evidence', 'applications', 'settings'];
@@ -18,6 +22,7 @@ function notify(message, error = false) {
   $('notice').className = error ? 'error' : '';
 }
 function context() {
+  retireActivity();
   gate.select(`${state.owner}:${state.route}:${state.application}`);
   $('main').replaceChildren(text('Loading the selected local scope…'));
   edits.clear();
@@ -103,7 +108,7 @@ function profileForm() {
 }
 function overview() {
   heading('Your application workspace');
-  $('main').append(section('Private, evidence-led preparation', text('This preview uses the Python data services. Research, grounded drafting and supervised browser actions are not connected yet. Nothing is submitted for you.'), text('Each friend should run an independent local installation. Profile selection is not account authentication.', 'muted')));
+  $('main').append(section('Private, evidence-led preparation', text('This preview uses the Python data services. Static research inspection and durable job/usage inspection are available in application activity. Research launch, grounded drafting and supervised browser actions remain unavailable. Nothing is submitted for you.'), text('Each friend should run an independent local installation. Profile selection is not account authentication.', 'muted')));
   if (!state.detail) { $('main').append(section('Start with your own experience', profileForm())); return; }
   const detail = state.detail;
   $('main').append(section('Next steps', text(`${detail.interview_answers.length} interview answers · ${detail.proposals.filter(p => p.status === 'pending').length} pending proposals · ${detail.applications.length} applications`), text('Save a story, confirm only accurate canonical facts, and add the exact employer questions. You can skip onboarding or finish early.'), link('#interview', 'Continue interview'), text('Evidence and typed personal values are stored separately. Uploading, approving wording or recording an outcome does not confirm a new fact.', 'muted')));
@@ -198,7 +203,9 @@ async function applications(create = false) {
   const application = state.detail.applications.find(item => item.application_id === state.application);
   if (!application) return;
   const url = externalUrl(application.vacancy_url);
-  $('main').append(section(`${application.company} · ${application.role}`, ...(url ? [link(url, 'Inspect the public vacancy')] : []), text('Company research, per-question packets, grounded drafting and exact-text assessment are not connected in this preview. No researched/assessed badge is implied.', 'warning'), applicationForm(application)));
+  $('main').append(section(`${application.company} · ${application.role}`, ...(url ? [link(url, 'Inspect the public vacancy')] : []), text('Static company research can be inspected below. Research launch, per-question packets, grounded drafting and exact-text assessment remain unavailable. No researched/assessed badge is implied.', 'warning'), applicationForm(application)));
+  activity = activityPane({api, owner: state.owner, application: application.application_id});
+  $('main').append(activity.element);
   const ticket = gate.capture('history');
   const data = await api(workspace(`/applications/${application.application_id}/history`));
   if (!gate.current(ticket)) return;
@@ -325,6 +332,7 @@ function settings() {
 }
 async function render() {
   if (state.dirty) return false;
+  retireActivity();
   edits.clear();
   // Re-rendering the same owner/view also retires earlier pane requests.
   for (const slot of ['interview', 'facts', 'history', 'evidence', 'source-preview', 'search', 'citation']) gate.capture(slot);
@@ -381,7 +389,7 @@ async function start() {
     state.owner = list.profiles.some(profile => profile.profile_id === remembered) ? remembered : '';
     state.route = routes.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'overview';
     state.initialized = true; $('profile').disabled = false;
-    context(); await reloadWithMessage('Local data preview ready. Cloud research, drafted answers and browser actions remain unavailable here.');
+    context(); await reloadWithMessage('Local data preview ready. Static research/job/usage inspection is available in application activity. Research launch, drafted answers and browser actions remain unavailable here.');
   } catch (error) {
     if (gate.current(ticket)) {
       notify(error.message, true);
