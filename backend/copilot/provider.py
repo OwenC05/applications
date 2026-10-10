@@ -21,6 +21,21 @@ class DefinitelyUnsent(Exception):
 
 
 @dataclass(frozen=True)
+class TransmissionGuard:
+    """Trusted internal two-phase scope check; never a model/browser tool.
+
+    prepare performs source IO without a writer. validate compares its certificate
+    with canonical SQLite authority inside the actual transmission transaction.
+    """
+    prepare: object
+    validate: object
+
+    def __post_init__(self):
+        if not callable(self.prepare) or not callable(self.validate):
+            raise ValueError('Trusted scope callbacks required')
+
+
+@dataclass(frozen=True)
 class Limits:
     daily_tokens: int
     daily_calls: int
@@ -89,6 +104,27 @@ def strict_output_schema(model):
 
     visit(schema)
     return schema
+
+
+def build_payload(*, model, instructions, input_value, output_model, max_output_tokens=2000):
+    """One deterministic construction for estimation, reservation and transport."""
+    if (not isinstance(model, str) or not 1 <= len(model) <= 100
+            or not isinstance(instructions, str) or not 1 <= len(instructions) <= 100_000
+            or type(max_output_tokens) is not int or not 1 <= max_output_tokens <= 8000):
+        error('INVALID_INPUT', 'Provider payload exceeds bounds', 422)
+    payload = {'model': model, 'store': False, 'max_output_tokens': max_output_tokens,
+               'instructions': instructions, 'input': encode(input_value),
+               'text': {'format': {'type': 'json_schema', 'name': output_model.__name__,
+                                   'strict': True, 'schema': strict_output_schema(output_model)}}}
+    if len(encode(payload).encode()) > 131072:
+        error('LIMIT_EXCEEDED', 'Provider payload exceeds bounds', 413)
+    return payload
+
+
+def conservative_reservation(**options):
+    """UTF-8 input bytes plus output ceiling, NOT exact provider token usage."""
+    payload = build_payload(**options)
+    return len(encode(payload).encode()) + payload['max_output_tokens']
 
 
 class Provider:
@@ -235,9 +271,12 @@ class Provider:
                 db.execute('INSERT INTO provider_retry_links VALUES(?,?)', (attempt.id, lineage[0]))
             return attempt
 
-    def _before_send(self, attempt_id, job_id, worker_id, fence):
+    def _before_send(self, attempt_id, job_id, worker_id, fence, guard=None):
+        certificate = guard.prepare() if guard is not None else None
         with self.store._tx() as db:
             _, key = self._authorize(db, job_id, worker_id, fence)
+            if guard is not None:
+                guard.validate(db, certificate)
             row = db.execute('SELECT data,dispatched FROM provider_attempts WHERE id=? AND job_id=?', (attempt_id, job_id)).fetchone()
             if not row or row[1] or c.ProviderAttempt.model_validate_json(row[0]).state != 'prepared':
                 error('PROVIDER_UNKNOWN', 'This provider attempt cannot be transmitted again')
@@ -293,26 +332,29 @@ class Provider:
             return True
 
     def send(self, job_id, worker_id, fence, stage, *, model, instructions, input_value,
-             output_model, reserved_tokens, max_output_tokens=2000):
-        if (not isinstance(instructions, str) or not 1 <= len(instructions) <= 100_000
-                or type(max_output_tokens) is not int or not 1 <= max_output_tokens <= 8000):
-            error('INVALID_INPUT', 'Provider payload exceeds bounds', 422)
-        payload = {'model': model, 'store': False, 'max_output_tokens': max_output_tokens,
-                   'instructions': instructions, 'input': encode(input_value),
-                   'text': {'format': {'type': 'json_schema', 'name': output_model.__name__,
-                                       'strict': True, 'schema': strict_output_schema(output_model)}}}
+             output_model, reserved_tokens, max_output_tokens=2000, guard=None):
+        if guard is not None and type(guard) is not TransmissionGuard:
+            error('INVALID_INPUT', 'Trusted internal transmission guard required', 422)
+        payload = build_payload(model=model, instructions=instructions, input_value=input_value,
+                                output_model=output_model, max_output_tokens=max_output_tokens)
         payload_bytes = len(encode(payload).encode())
-        if payload_bytes > 131072:
-            error('LIMIT_EXCEEDED', 'Provider payload exceeds bounds', 413)
         # Deliberately conservative UTF-8-byte input estimate plus output ceiling;
         # reservation is not a claim of exact tokenizer/monetary billing knowledge.
         if type(reserved_tokens) is not int or reserved_tokens < payload_bytes + max_output_tokens:
             error('INVALID_INPUT', 'Reservation must cover conservative input estimate and output ceiling', 422)
+        if guard is not None:
+            certificate = guard.prepare()
+            with self.store._tx() as db:
+                self.jobs.assert_current(db, job_id, worker_id, fence)
+                guard.validate(db, certificate)
         attempt = self.reserve(job_id, worker_id, fence, stage, reserved_tokens, model,
                                request_sha256=c.canonical_hash(payload))
         if attempt.state == 'completed':
+            certificate = guard.prepare() if guard is not None else None
             with self.store._tx() as db:
                 self.jobs.assert_current(db, job_id, worker_id, fence)
+                if guard is not None:
+                    guard.validate(db, certificate)
                 row = db.execute('SELECT response FROM provider_attempts WHERE id=?', (attempt.id,)).fetchone()
                 if row and row[0]:
                     return output_model.model_validate_json(row[0])
@@ -320,7 +362,7 @@ class Provider:
         if attempt.state != 'prepared':
             error('PROVIDER_UNKNOWN', 'Resolve the previous provider attempt explicitly; no automatic retry', 409)
         try:
-            response = self.transport(payload, lambda: self._before_send(attempt.id, job_id, worker_id, fence))
+            response = self.transport(payload, lambda: self._before_send(attempt.id, job_id, worker_id, fence, guard))
         except DefinitelyUnsent:
             if self._unsent(attempt.id, job_id, worker_id, fence):
                 error('PROVIDER_UNSENT', 'Provider request was not sent; no successful result claimed', 503)
@@ -353,8 +395,11 @@ class Provider:
             self._unknown(attempt.id, job_id)
             error('INVALID_PROVIDER_OUTPUT', 'Provider returned incomplete, refused or invalid structured output', 502)
         try:
+            certificate = guard.prepare() if guard is not None else None
             with self.store._tx() as db:
                 self._authorize(db, job_id, worker_id, fence)
+                if guard is not None:
+                    guard.validate(db, certificate)
                 row = db.execute('SELECT data,dispatched FROM provider_attempts WHERE id=?', (attempt.id,)).fetchone()
                 current = c.ProviderAttempt.model_validate_json(row[0])
                 if current.state != 'prepared' or not row[1]:

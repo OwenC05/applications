@@ -1105,16 +1105,41 @@ class Store:
 
     def forget_jobs(self, db, owner, *, application_id=None, profile=False, affected=()):
         """Same-transaction derivative forgetting; uncertainty/reservations are never released."""
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='job_keys'").fetchone():
+            if application_id:
+                columns = {row[1] for row in db.execute('PRAGMA table_info(job_keys)')}
+                if (not {'application_id', 'kind'} <= columns
+                        or db.execute('SELECT 1 FROM job_keys WHERE owner=? AND kind IS NULL', (owner,)).fetchone()):
+                    # Do not guess which app owns legacy orphan text, erase another
+                    # app's metadata, or claim a successful privacy deletion.
+                    fail('CONFLICT', 'Legacy job-key scope is unknown; owner-wide forgetting or profile deletion is required', 409)
+                db.execute('DELETE FROM job_keys WHERE owner=? AND application_id=?', (owner, application_id))
+            else:
+                db.execute('DELETE FROM job_keys WHERE owner=?', (owner,))
         # Privacy forgetting is based on canonical owner/application record scope,
-        # never contingent on an intact retained job association. Orphaned packet
+        # never contingent on an intact retained job association. Orphaned derived
         # plaintext and malformed/missing job IDs have no exemption.
         clause = " AND json_extract(data,'$.application_id')=?" if application_id else ''
         args = (owner, application_id) if application_id else (owner,)
         for rid, kind in db.execute(
-                "SELECT id,kind FROM records WHERE owner=? AND kind IN ('workspace:packet_batch','workspace:packet_dependency','workspace:packet_intent')" + clause,
+                "SELECT id,kind FROM records WHERE owner=? AND kind IN ('workspace:packet_batch','workspace:packet_dependency','workspace:packet_intent','workspace:draft','workspace:draft_intent','workspace:draft_dependency','workspace:draft_review')" + clause,
                 args).fetchall():
             db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)', (rid, owner, kind))
             db.execute('DELETE FROM records WHERE id=? AND owner=?', (rid, owner))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='provider_attempts'").fetchone():
+            attempt_clause = " AND json_extract(data,'$.application_id')=?" if application_id else ''
+            for aid, serialized, state in db.execute(
+                    'SELECT id,data,state FROM provider_attempts WHERE owner=?' + attempt_clause, args).fetchall():
+                # Attempt scope, not a possibly missing/cross-application job link,
+                # governs plaintext forgetting. Accounting is retained unchanged;
+                # a prepared orphan remains conservative paid uncertainty.
+                if state == 'prepared':
+                    attempt = json.loads(serialized)
+                    attempt['state'] = 'indeterminate'
+                    db.execute('UPDATE provider_attempts SET state=?,data=?,response=NULL WHERE id=?',
+                               ('indeterminate', json.dumps(attempt), aid))
+                else:
+                    db.execute('UPDATE provider_attempts SET response=NULL WHERE id=?', (aid,))
         if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'").fetchone():
             return
         for jid, serialized, parameters in db.execute('SELECT id,data,parameters FROM jobs WHERE owner=?', (owner,)).fetchall():
@@ -1124,11 +1149,13 @@ class Store:
                          or job['kind'] == 'index' and options.get('corpus') in affected)
             if not dependent:
                 continue
-            for aid, data in db.execute("SELECT id,data FROM provider_attempts WHERE job_id=? AND state='prepared'", (jid,)).fetchall():
+            for aid, data in db.execute("SELECT id,data FROM provider_attempts WHERE job_id=? AND owner=? AND json_extract(data,'$.application_id') IS ? AND state='prepared'",
+                                       (jid, owner, job.get('application_id'))).fetchall():
                 attempt = json.loads(data)
                 attempt['state'] = 'indeterminate'
                 db.execute('UPDATE provider_attempts SET state=?,data=? WHERE id=?', ('indeterminate', json.dumps(attempt), aid))
-            uncertain = bool(db.execute("SELECT 1 FROM provider_attempts WHERE job_id=? AND state='indeterminate'", (jid,)).fetchone())
+            uncertain = bool(db.execute("SELECT 1 FROM provider_attempts WHERE job_id=? AND owner=? AND json_extract(data,'$.application_id') IS ? AND state='indeterminate'",
+                                        (jid, owner, job.get('application_id'))).fetchone())
             if job['state'] in ('queued', 'running') or uncertain:
                 job.update(state='indeterminate' if uncertain else 'cancelled', cancellation_requested=True,
                            stage='provider_unknown' if uncertain else 'scope_forgotten')
@@ -1136,8 +1163,6 @@ class Store:
             if job['kind'] == 'packets':
                 db.execute("UPDATE jobs SET dependencies='[]' WHERE id=?", (jid,))
             db.execute('DELETE FROM job_stages WHERE job_id=?', (jid,))
-            db.execute('DELETE FROM job_keys WHERE job_id=?', (jid,))
-            db.execute('UPDATE provider_attempts SET response=NULL WHERE job_id=?', (jid,))
             db.execute('UPDATE jobs SET state=?,data=?,parameters=? WHERE id=?',
                        (job['state'], json.dumps(job), '{}', jid))
 

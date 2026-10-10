@@ -11,7 +11,9 @@ from .contracts import EvidenceError
 from .jobs import Jobs
 
 SAFE_CODES = {'CONFLICT', 'NOT_FOUND', 'CLEANUP_PENDING', 'MODEL_NOT_READY', 'INDEX_NOT_READY',
-              'LIMIT_EXCEEDED', 'HANDLER_UNAVAILABLE', 'INVALID_INPUT', 'UNAVAILABLE'}
+              'LIMIT_EXCEEDED', 'HANDLER_UNAVAILABLE', 'INVALID_INPUT', 'UNAVAILABLE',
+              'CONSENT_REQUIRED', 'BUDGET_REQUIRED', 'BUDGET_EXCEEDED', 'PROVIDER_UNKNOWN',
+              'PROVIDER_UNSENT', 'INVALID_PROVIDER_OUTPUT'}
 
 
 def safe_code(error):
@@ -19,7 +21,7 @@ def safe_code(error):
 
 
 class Worker:
-    def __init__(self, store, service_factory, *, lease_seconds=30, heartbeat_interval=None, research_factory=None, packet_factory=None):
+    def __init__(self, store, service_factory, *, lease_seconds=30, heartbeat_interval=None, research_factory=None, packet_factory=None, drafting_factory=None):
         if type(lease_seconds) is not int or not 5 <= lease_seconds <= 300:
             raise ValueError('Worker lease must be 5 to 300 seconds')
         interval = heartbeat_interval if heartbeat_interval is not None else lease_seconds / 3
@@ -34,6 +36,8 @@ class Worker:
         self.research_factory = research_factory
         self.packet_factory = packet_factory
         self._packets = None
+        self.drafting_factory = drafting_factory
+        self._drafting = None
         self.stop = threading.Event()
         self.last_outcome = None
         self._last_emitted = None
@@ -59,6 +63,13 @@ class Worker:
             self._packets = (self.packet_factory(self.store, self.jobs) if self.packet_factory
                              else PacketService(self.store, self.service(), jobs=self.jobs))
         return self._packets
+
+    def drafting(self):
+        if self._drafting is None:
+            from .drafting.service import DraftingService
+            self._drafting = (self.drafting_factory(self.store, self.jobs) if self.drafting_factory
+                              else DraftingService(self.store, jobs=self.jobs))
+        return self._drafting
 
     @contextmanager
     def heartbeat(self, job):
@@ -146,12 +157,16 @@ class Worker:
                         self.packets().run_packets(job.id, self.worker_id, job.fence)
                     elif job.kind == 'research':
                         self.research().run_research(job.id, self.worker_id, job.fence)
+                    elif job.kind == 'draft':
+                        self.drafting().run_draft(job.id, self.worker_id, job.fence)
                     else:
                         raise EvidenceError('HANDLER_UNAVAILABLE', 'No handler is available for this job', 503)
             except Exception as exc:
                 try:
                     if job.kind == 'packets':
                         self.jobs.fail_packet(job.id, self.worker_id, job.fence)
+                    elif job.kind in ('draft', 'assess'):
+                        self.jobs.fail_drafting(job.id, self.worker_id, job.fence)
                     else:
                         self.jobs.finish(job.id, self.worker_id, job.fence, 'failed')
                 except EvidenceError as finish_error:

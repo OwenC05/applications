@@ -2,7 +2,7 @@
 
 A private, local-first internship application workspace for **technology and finance**. Includes the preserved dependency-free Node.js MVP and a separate Python/FastAPI evidence workbench.
 
-**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python also has reviewed profile/interview/proposal/application data APIs, an explicit legacy importer and an isolated workspace preview. Durable workers handle indexing and bounded static company/role research with original-source inspection through the API. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. These components are not yet an integrated researched-drafting pipeline. Grounded application drafting and later supervised browser filling/submission are still being built. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
+**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python also has reviewed profile/interview/proposal/application data APIs, an explicit legacy importer and an isolated workspace preview. Durable workers handle indexing and bounded static company/role research with original-source inspection through the API. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. Python now connects stored per-question packets to consent-gated, durable 3/5-call drafting through API routes, with exact-text evidence assessment and blocked-output inspection. The integrated drafting UI, editing/reassessment/review workflow, semantic quality qualification and supervised browser filling/submission are still being built. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
 
 ## Start
 
@@ -69,7 +69,7 @@ The editorial rubric draws on public [Oxford application-form guidance](https://
 
 ## New: Python evidence milestone (separate workbench)
 
-The existing Node application above is preserved. This additive milestone is **not yet integrated with application drafting**. It provides local document import, explicit fact confirmation, hybrid retrieval and citation inspection on **port 3001**, with a separate SQLite data root. It makes no cloud calls or generated-answer/hiring-quality claims.
+The existing Node application above is preserved. This evidence page remains **quote-only**; separate workspace drafting APIs are described below. It provides local document import, explicit fact confirmation, hybrid retrieval and citation inspection on **port 3001**, with a separate SQLite data root. It makes no cloud calls or generated-answer/hiring-quality claims.
 
 The additive `/api/workspace` data services share that same Python/SQLite profile
 and confirmed-fact authority: 48-question onboarding, pending confirmations,
@@ -127,7 +127,7 @@ docker compose exec app python -m copilot cleanup
 
 Only the workbench port is published, on loopback; Chroma and the background worker have no host ports. Named volumes retain evidence, models and Chroma; the worker mounts the model cache read-only. Health means the API is alive, **not** that models/indexes are prepared. Status deliberately does not scan the cache; indexing and queries validate readiness and both retrieval branches. Keep a single API process and one normal background worker, without development reload.
 
-Indexing now uses durable fenced jobs. The commands above enqueue an index job and wait for its durable result, including when the background worker claims it. API clients can instead enqueue with `POST /api/workspace/profiles/PROFILE_ID/indexes` and inspect or cancel the returned job. The worker supports indexing and bounded static research; index routes do not launch research, and no drafting handler is enabled. Deletion revokes access immediately and returns cleanup pending for the worker to reconcile; a database outage or an unacknowledged remote write can keep cleanup pending.
+Indexing now uses durable fenced jobs. The commands above enqueue an index job and wait for its durable result, including when the background worker claims it. API clients can instead enqueue with `POST /api/workspace/profiles/PROFILE_ID/indexes` and inspect or cancel the returned job. The worker supports indexing, bounded static research, stored evidence packets and explicitly consented drafting; index routes do not launch research or drafting. Deletion revokes access immediately and returns cleanup pending for the worker to reconcile; a database outage or an unacknowledged remote write can keep cleanup pending.
 
 Provider-attempt inspection and explicitly warned retry queuing are documented in
 [API.md](API.md#durable-indexing-status-and-worker-outcomes). Retry may cause
@@ -165,7 +165,7 @@ Optional explicit paths: `COPILOT_DATA_DIR` (default `evidence-data`), `COPILOT_
 
 **Deletion/privacy:** removing a fact retains its raw source; deleting a source revokes linked facts. Profile/source deletion immediately revokes app access, with exact owned external cleanup resumable through tickets. An absent Chroma collection or exited local producer does not prove an ambiguous remote write has stopped: completion requires its recorded write-envelope acknowledgment and cleanup checks; otherwise the ticket remains pending, potentially indefinitely. It does **not** promise forensic erasure from database freelists/WAL, service storage internals, host media/RAM, exports or external backups. Storage is plaintext; protect the OS/drive. Profiles are not authenticated friend accounts. Each friend should run an independent installation with their own data.
 
-**Limits:** English, TXT/MD/text-PDF only; 10 MiB upload, 100 PDF pages, one million extracted characters, bounded Linux parser subprocess, 1,000 chunks per generation. No OCR, encrypted PDFs, filesystem crawl or automatic fact confirmation. Static company/role research uses durable API/worker publication and source inspection, but only explicit URLs on confirmed hosts. The exact labelled identity adapter is not general employer/ATS support; unsupported layouts stay incomplete. There is no discovery/search agent or renderer. Employer indexes and scoped hybrid quotation retrieval extend the existing fact/document machinery. Explicit unpaid packet jobs persist per-question context and selected exact employer criteria, with visible omissions and staleness—not semantic support or reviewed answers. Python paid generation, support ledger, backup/restore qualification and browser submission automation remain pending.
+**Limits:** English, TXT/MD/text-PDF only; 10 MiB upload, 100 PDF pages, one million extracted characters, bounded Linux parser subprocess, 1,000 chunks per generation. No OCR, encrypted PDFs, filesystem crawl or automatic fact confirmation. Static company/role research uses durable API/worker publication and source inspection, but only explicit URLs on confirmed hosts. The exact labelled identity adapter is not general employer/ATS support; unsupported layouts stay incomplete. There is no discovery/search agent or renderer. Employer indexes and scoped hybrid quotation retrieval extend the existing fact/document machinery. Explicit unpaid packet jobs persist per-question context and selected exact employer criteria, with visible omissions and staleness—not semantic support or reviewed answers. Packet-backed generation and exact-text support ledgers are implemented as an API preview; provider/model compatibility, semantic quality, backup/restore qualification and browser submission automation remain unqualified or unavailable.
 
 Next slices and acceptance criteria: [evidence milestone](docs/plans/evidence-milestone.md), [tests](docs/plans/evidence-milestone-tests.md), and [current researched-application roadmap](docs/plans/README.md). Production release still needs live Docker/HTTP persistence/recovery, broader retrieval evaluation, supported-machine performance measurements and independent friend installation trials.
 
@@ -183,3 +183,28 @@ PYTHONPATH=backend uv run --project backend python eval/run.py --models /path/to
 The evaluation is a small synthetic retrieval check, not semantic truth validation or hiring quality. Development currently emits an upstream Starlette/TestClient deprecation warning; tests still pass. Docker/resource-limit behavior and independent friend setup remain release checks.
 
 Implementation evidence: [verified milestone and remaining gates](docs/plans/evidence-verification.md).
+
+## Python drafting API preview (S5 generation increment)
+
+With a current complete research run and registered fact/employer packet batch,
+the Python API can disclose selected per-question context, queue a durable draft
+and inspect its exact text, citations, blocking reasons and stale history. The
+worker runs plan/draft/critique, with at most one rewrite and fresh final critique
+(**3 or 5 calls**). It rechecks sources, generation identity, consent and budgets
+at actual transmission admission; unknown provider outcomes are not replayed.
+
+Set a model identifier explicitly in the preview request, configure local daily/
+per-job reservation ceilings, grant the `drafting` purpose, and acknowledge the
+exact preview hash before queuing. Python reads `OPENAI_API_KEY` from the worker
+process environment only when authorizing a consented request; it does not load
+the Node `.env` file. Never send keys in API bodies or commit them. Preview, queue
+and inspection make no paid calls or key lookups. Reservation estimates use
+conservative UTF-8 input bytes plus output ceilings, **not exact tokens or prices**.
+See [the Python drafting API](API.md#python-drafting-generation-preview).
+
+This is API-only generation/publication, **not completed S5 or a qualified release**.
+Unsupported claims, missing required answers and exceeded limits remain visible.
+Semantic assessments and factual inventories are fallible, not truth certification.
+Editing, runtime reassessment, exact human review and browser handoff are not
+enabled in this increment; `review_eligible` and `browser_eligible` remain false.
+No real provider request or human-labelled semantic-quality gate has been run.

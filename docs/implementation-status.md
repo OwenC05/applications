@@ -184,6 +184,25 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   stale history/idempotency replay and revocation/isolation cleanup. Owned helpers
   were reaped and synthetic storage removed. No paid/public-employer calls or
   semantic-quality, Docker, friend-install or release qualification is implied.
+- **S5 generation/publication increment:** stored, current per-question packets
+  drive a strict plan/draft/critique pipeline, optionally one rewrite and fresh
+  final critique (3 or 5 provider calls). Exact preview disclosure, affirmative
+  acknowledgment, purpose consent, explicit configured ceilings and lazy worker
+  credentials precede generation. A trusted two-phase guard verifies original
+  bytes outside writers and canonical packet/generation authority at actual
+  before-send admission, completion and final publication. Immutable intents and
+  completed-stage reuse preserve fenced restart behavior; unknown paid attempts
+  retain reservations without replay. Atomic publication advances output once.
+  Model-free inspection validates the full publication/provider-stage graph before
+  allowing stale history; unsupported/limited/incomplete text remains inspectable.
+  Automated factual/nonfactual inventories and semantic support remain fallible.
+  Independent review prompted regression-first fixes for optional manual-question
+  overblocking and orphan provider-response forgetting. Required manual questions
+  still block, optional ones stay visible, and forgetting uses canonical attempt
+  scope rather than missing or cross-application job links.
+  Runtime editing, one-call reassessment, exact human review, integrated drafting
+  UI and human-labelled semantic-quality qualification remain pending. Generation
+  inspection never claims review/browser eligibility. **S5 is not complete.**
 - **S6 data preview only:** `/ui/workspace/index.html` connects canonical Python
   onboarding, pending confirmations, application inputs, feedback, selected
   document import and hybrid quotation/citation inspection. Separate typed values,
@@ -225,6 +244,7 @@ not outcomes inferred from configuration or synthetic mocks. No live employer
 application actions are authorized by implementation tests.
 
 The preserved Node app and Python evidence workbench remain runnable separately.
-Python application drafting and browser automation stay unavailable until their
-own integration, exact-text support and independent review gates pass. Each
+Python API-only generation is described above; runtime edit/reassessment/review,
+the unified drafting UI and browser automation remain unavailable pending their
+own integration and independent gates. Each
 friend uses an independent local installation, not a hosted shared account.

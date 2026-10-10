@@ -9,14 +9,17 @@ from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError, model_validator
+from starlette.concurrency import run_in_threadpool
 
 from .config import Settings
 from .contracts import Citation, EvidenceError, Span
 from .documents import ingest
 from .domain.contracts import Contract, Revision, canonical_hash
+from .drafting.runtime_contracts import DraftPreviewRequest, DraftRequest
+from .drafting.service import DraftingService
 from .jobs import Jobs
-from .provider import Provider
+from .provider import Limits, Provider
 from .retrieval.packet_runtime_contracts import PacketRequest
 from .retrieval.packet_service import PacketService
 from .store import Store
@@ -35,6 +38,21 @@ class EmployerIndexInput(Contract):
     idempotency_key: str = Field(min_length=1, max_length=200)
     expected_input_revision: Revision
     expected_research_revision: Revision
+
+
+class BudgetInput(Contract):
+    daily_tokens: int = Field(ge=1, le=100_000_000)
+    daily_calls: int = Field(ge=1, le=100_000_000)
+    job_tokens: int = Field(ge=1, le=100_000_000)
+    job_calls: int = Field(ge=1, le=100_000_000)
+    acknowledged: StrictBool
+
+    @model_validator(mode='after')
+    def explicit_limits(self):
+        if self.acknowledged is not True:
+            raise ValueError('Explicit budget acknowledgement required')
+        Limits(self.daily_tokens, self.daily_calls, self.job_tokens, self.job_calls)
+        return self
 
 
 class ProfileInput(Input):
@@ -93,6 +111,8 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
     app.state.jobs = jobs
     packets = PacketService(store, jobs=jobs)
     app.state.packets = packets
+    drafting = DraftingService(store, jobs=jobs)
+    app.state.drafting = drafting
     from .research.service import ResearchRequest, ResearchService
     research_service = ResearchService(store, jobs=jobs)
     app.state.research = research_service
@@ -170,7 +190,7 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
         return {'token': token, 'mode': 'quote_only', 'models_ready': False,
                 'model_readiness': 'not_checked_in_request',
                 'pending_cleanup': pending, 'pending_generation_cleanup': generation_pending, 'cloud_enabled': False,
-                'available_job_handlers': ['index', 'research'],
+                'available_job_handlers': ['index', 'research', 'packets', 'draft'],
                 'setup': 'python -m copilot.models setup',
                 'indexing': 'python -m copilot index --profile ID --corpus facts|documents'}
 
@@ -256,7 +276,7 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
                                                        (job.profile_id, job.id)).fetchone())
             result['cleanup_pending'] = result['cleanup_pending'] or bool(db.execute("SELECT 1 FROM research_intents WHERE owner=? AND job_id=? AND state='cleanup_pending' LIMIT 1", (job.profile_id, job.id)).fetchone())
         if result['stage'] not in {'queued', 'started', 'index_published', 'cancelled',
-                                  'research_published', 'packets_published', 'scope_forgotten', 'missing_scope', 'stale_inputs', 'lease_limit', 'provider_unknown'}:
+                                  'research_published', 'packets_published', 'draft_published', 'drafting_failed', 'scope_forgotten', 'missing_scope', 'stale_inputs', 'lease_limit', 'provider_unknown'}:
             result['stage'] = 'working'
         return result
 
@@ -333,6 +353,47 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
     @app.get(packet_base + '/{batch_id}/questions/{question_id}')
     def workspace_packet_question(profile_id: str, application_id: str, batch_id: str, question_id: str):
         return packets.question(profile_id, application_id, batch_id, question_id)
+
+    draft_base = '/api/workspace/profiles/{profile_id}/applications/{application_id}/drafts'
+
+    @app.post(draft_base + '/preview')
+    async def workspace_draft_preview(profile_id: str, application_id: str, request: Request):
+        body = await workspace_input(request, DraftPreviewRequest)
+        return await run_in_threadpool(drafting.preview, profile_id, application_id, body)
+
+    @app.post(draft_base, status_code=202)
+    async def workspace_draft_enqueue(profile_id: str, application_id: str, request: Request):
+        body = await workspace_input(request, DraftRequest)
+        job = await run_in_threadpool(drafting.enqueue, profile_id, application_id, body)
+        return {'schema_version': 1, 'job': job_summary(job)}
+
+    @app.get(draft_base)
+    def workspace_draft_list(profile_id: str, application_id: str):
+        return drafting.list(profile_id, application_id)
+
+    @app.get(draft_base + '/{draft_id}')
+    def workspace_draft_detail(profile_id: str, application_id: str, draft_id: str):
+        return drafting.detail(profile_id, application_id, draft_id)
+
+    budget_base = '/api/workspace/profiles/{profile_id}/budget'
+
+    @app.get(budget_base)
+    def workspace_budget(profile_id: str):
+        with store._read() as db:
+            store._profile(db, profile_id)
+            row = db.execute('SELECT daily_tokens,daily_calls,job_tokens,job_calls FROM budget_limits WHERE owner=?',
+                             (profile_id,)).fetchone()
+        return {'schema_version': 1, 'configured_limits': dict(zip(
+            ('daily_tokens', 'daily_calls', 'job_tokens', 'job_calls'), row)) if row else None,
+            'reservation_units': 'conservative_input_bytes_plus_output_ceiling',
+            'monetary_cost': None, 'pricing_status': 'unknown', 'grants_cloud_consent': False}
+
+    @app.post(budget_base)
+    async def workspace_budget_configure(profile_id: str, request: Request):
+        body = await workspace_input(request, BudgetInput)
+        Provider(jobs, lambda: None).configure_limits(profile_id, Limits(
+            body.daily_tokens, body.daily_calls, body.job_tokens, body.job_calls))
+        return workspace_budget(profile_id)
 
     @app.get('/api/workspace/profiles/{profile_id}/jobs')
     def workspace_jobs(profile_id: str):

@@ -7,7 +7,7 @@ from .contracts import EvidenceError
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Local evidence workbench (not application drafting)")
+    parser = argparse.ArgumentParser(description="Local evidence and durable application workspace")
     commands = parser.add_subparsers(dest="command", required=True)
     serve = commands.add_parser("serve")
     serve.add_argument("--container", action="store_true", help="Bind container network; publish only loopback")

@@ -1,7 +1,7 @@
 """Literal owned-process kill/restart matrix. Synthetic provider, loopback receiver only."""
 import json
 import os
-import select
+import selectors
 import signal
 import subprocess
 import sys
@@ -18,6 +18,13 @@ from copilot.contracts import EvidenceError
 from copilot.jobs import Jobs
 from copilot.provider import Provider
 from copilot.store import Store
+
+
+def wait_readable(stream, timeout):
+    with selectors.DefaultSelector() as selector:
+        selector.register(stream, selectors.EVENT_READ)
+        return bool(selector.select(timeout))
+
 
 CHILD = r'''
 import sys
@@ -157,8 +164,7 @@ def test_actual_provider_process_kill_matrix_preserves_budget_and_never_replays(
         env={'HOME': str(sandbox), 'PATH': os.defpath, 'LANG': 'C.UTF-8'},
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
-        ready_fds, _, _ = select.select([child.stdout], [], [], 12)
-        assert ready_fds, 'Owned child did not reach its bounded ready handshake'
+        assert wait_readable(child.stdout, 12), 'Owned child did not reach its bounded ready handshake'
         handshake = json.loads(child.stdout.readline())
         assert handshake['ready'] == phase and handshake['pid'] == child.pid
         if phase == 'during_transport':
@@ -211,3 +217,19 @@ def test_actual_provider_process_kill_matrix_preserves_budget_and_never_replays(
     assert transport_calls == []
     with pytest.raises(EvidenceError):
         jobs.commit_stage(original.id, original.lease_owner, original.fence, 'late', {'answer': 'not publishable'})
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='Literal high POSIX descriptor readiness test')
+def test_owned_child_readiness_supports_descriptors_above_select_fd_setsize():
+    import fcntl
+
+    read_fd, write_fd = os.pipe()
+    try:
+        high_fd = fcntl.fcntl(read_fd, fcntl.F_DUPFD_CLOEXEC, 1024)
+        with os.fdopen(high_fd, 'rb') as stream:
+            os.write(write_fd, b'ok')
+            assert wait_readable(stream, 1)
+            assert stream.read(2) == b'ok'
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)

@@ -58,6 +58,25 @@ class Jobs:
                    job_tokens INTEGER NOT NULL, job_calls INTEGER NOT NULL)''',
             ):
                 db.execute(sql)
+            # Additive legacy migration: annotate keys only from a proven retained
+            # canonical job. Unknown orphan scope stays unknown, never guessed.
+            columns = {row[1] for row in db.execute('PRAGMA table_info(job_keys)')}
+            for name in ('application_id', 'kind'):
+                if name not in columns:
+                    db.execute(f'ALTER TABLE job_keys ADD COLUMN {name} TEXT')
+            db.execute('CREATE INDEX IF NOT EXISTS job_keys_scope ON job_keys(owner,application_id)')
+            for owner, key, jid, job_owner, state, serialized in db.execute(
+                    '''SELECT k.owner,k.key,k.job_id,j.owner,j.state,j.data FROM job_keys k
+                       LEFT JOIN jobs j ON j.id=k.job_id WHERE k.kind IS NULL''').fetchall():
+                if job_owner != owner or serialized is None:
+                    continue
+                try:
+                    job = c.DurableJob.model_validate_json(serialized)
+                except ValueError:
+                    continue
+                if (job.id, job.profile_id, job.state, job.idempotency_key) == (jid, owner, state, key):
+                    db.execute('UPDATE job_keys SET application_id=?,kind=? WHERE owner=? AND key=? AND kind IS NULL',
+                               (job.application_id, job.kind, owner, key))
 
     def _now(self):
         value = self.clock()
@@ -148,7 +167,8 @@ class Jobs:
                                state='queued', revisions=revisions, fence=0)
             db.execute('INSERT INTO jobs VALUES(?,?,?,?,?,?)',
                        (job.id, owner, job.state, job.model_dump_json(), encode(parameters), encode(dependencies)))
-            db.execute('INSERT INTO job_keys VALUES(?,?,?,?)', (owner, idempotency_key, job.id, request_hash))
+            db.execute('INSERT INTO job_keys(owner,key,job_id,request_sha256,application_id,kind) VALUES(?,?,?,?,?,?)',
+                       (owner, idempotency_key, job.id, request_hash, application_id, kind))
             return job
 
     def _packet_current(self, db, packet, revisions):
@@ -172,8 +192,8 @@ class Jobs:
             'cancellation_requested': False})
         db.execute('INSERT INTO jobs VALUES(?,?,?,?,?,?)', (retry.id, retry.profile_id, retry.state,
                    retry.model_dump_json(), encode(parameters), encode(dependencies)))
-        db.execute('INSERT INTO job_keys VALUES(?,?,?,?)',
-                   (retry.profile_id, body.idempotency_key, retry.id, request_hash))
+        db.execute('INSERT INTO job_keys(owner,key,job_id,request_sha256,application_id,kind) VALUES(?,?,?,?,?,?)',
+                   (retry.profile_id, body.idempotency_key, retry.id, request_hash, retry.application_id, retry.kind))
         db.execute('INSERT INTO job_retries VALUES(?,?,?,?,?)', (retry.id, retry.profile_id, prior.id,
                    body.prior_attempt_id, body.warning_version))
         return retry
@@ -356,5 +376,25 @@ class Jobs:
                           (job.id,)).fetchone():
                 error('CONFLICT', 'Uncertain provider attempt prevents unpaid failure transition')
             updated = job.model_copy(update={'state': 'failed', 'stage': 'packet_failed'})
+            self._save(db, updated)
+            return updated
+
+    def fail_drafting(self, job_id, worker_id, fence):
+        """Record definite drafting failure, never publish or release uncertainty.
+
+        Failed inputs need not become eligible again just to record failure. The
+        exact surviving lease/scope is still required; uncertainty wins instead.
+        """
+        with self.store._tx() as db:
+            job, _, _ = self._job(db, job_id)
+            if (job.kind not in ('draft', 'assess') or job.state != 'running'
+                    or job.lease_owner != worker_id or job.fence != fence
+                    or job.cancellation_requested or job.lease_expires_at <= self._now()):
+                error('CONFLICT', 'Drafting failure lease is no longer current')
+            self.domain._get(db, job.profile_id, job.application_id, 'application', c.ApplicationRecord)
+            if db.execute("SELECT 1 FROM provider_attempts WHERE job_id=? AND state IN ('prepared','indeterminate')",
+                          (job.id,)).fetchone():
+                error('CONFLICT', 'Uncertain provider attempt prevents definite failure transition')
+            updated = job.model_copy(update={'state': 'failed', 'stage': 'drafting_failed'})
             self._save(db, updated)
             return updated

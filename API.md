@@ -116,7 +116,7 @@ Frozen route groups (data routes implemented in S1; later capabilities remain ga
 - `POST /profiles/{id}/applications`: ApplicationRecord input fields, server IDs,
   revision/time. `PATCH .../applications/{application_id}`: validated input edits
   with expected input revision. Stale concurrent writes return409.
-- Job and static-research routes are described below. Later slices add draft/review/form/grant/submission routes against
+- Job and static-research routes are described below. Draft-generation routes are documented below; later slices add edit/review/form/grant/submission routes against
   frozen models; their exact HTTP shapes are committed before each consuming UI
   slice. A model/grant supplied by a client never establishes stored permission.
 
@@ -393,6 +393,69 @@ socket-buffer traffic; it is not a whole-network byte measurement.
 Authority is checked before/after acquisitions and before return. In-flight
 anonymous GETs cannot be recalled; accepting/publishing results still requires
 the stored current job/fence/revision checks. There is no discovery/search agent,
-renderer, general ATS identity adapter or application drafting integration yet.
+renderer or general ATS identity adapter. Separate packet-backed drafting routes are documented below.
 Employer indexing is available through the separate explicit route above. This static preview does not complete S3 or enable tailored
 answer generation. Unsupported layouts remain visibly incomplete.
+
+
+## Python drafting generation preview
+
+These local boundary-guarded, owner/application-scoped routes are an **API preview**, not
+completed S5, semantic quality qualification or browser authorization. Existing
+Host/Origin/boot-token and JSON/body-size restrictions apply. No key in API bodies.
+
+Base: `/api/workspace/profiles/{profile_id}/applications/{application_id}/drafts`.
+
+| Route | Contract |
+|---|---|
+| `POST .../preview` | Exact `batch_id,batch_sha256,expected_revisions,model,max_output_tokens` (1–8,000; default 2,000). Returns exact selected-context disclosure/hash, at-most-five-call conservative reservation bound, configured limits and unknown monetary status. No key lookup, provider send or budget enabling. |
+| `POST ...` | Same fields plus `idempotency_key,disclosure_sha256,acknowledged:true`; returns 202 `{schema_version:1,job:...}`. Exact replay precedes currentness checks; changed requests conflict. Whole five-call conservative budget headroom is required. |
+| `GET ...` | `{schema_version:1,drafts:[inspection...]}`. No model/provider initialization. |
+| `GET .../{draft_id}` | Immutable text, ledger, publication, full canonical questions/manual requirements, currentness and reason codes. Intact stale history remains inspectable; corrupt associations fail closed. |
+
+`expected_revisions` must explicitly contain all seven dimensions: `metadata`,
+`facts`, `documents`, `consent`, `application_input`, `application_output`,
+`research`, even when zero. Use the current canonical vector, not packet metadata.
+Model is a supplied bounded identifier, not a URL or advertised compatible default.
+Provider/model compatibility remains unqualified; no paid smoke was performed.
+
+Budget routes: `GET /api/workspace/profiles/{profile_id}/budget` reports
+`configured_limits` or null. `POST` requires positive bounded integers
+`daily_tokens,daily_calls,job_tokens,job_calls` and strict `acknowledged:true`;
+per-job ceilings cannot exceed daily ceilings. It configures ceilings, **not cloud
+consent**, a key or a payment authorization. Configuring budget does not transmit.
+The units conservatively reserve input UTF-8 bytes plus output ceiling, not exact
+provider token usage. Preview upper bound is `5*(131072+max_output_tokens)` in those
+reservation-estimate units; monetary cost remains null/pricing unknown. Concurrent
+work and changed ceilings may cause later admission to fail.
+
+Only a current, integrity-verified S4 batch can be used. The pipeline sends each
+target's selected confirmed-fact/employer excerpts and applicable selected-only
+criteria, full question/constraints and bounded stage outputs—not full profiles,
+raw personal documents, typed sensitive values, history or the pasted JD. Purpose
+consent, key, reservations and current evidence authority are checked before each
+body admission. Revocation cannot recall bytes already sent. Strict payload/job
+byte limits can require a smaller explicitly selected batch; nothing is silently
+cropped. Unsupported warned retries remain non-executable.
+
+Publication atomically creates immutable text/ledger/dependency records and
+advances output revision once. Identified factual spans use exact code-point
+ranges and canonical selected citation IDs. Range coverage and semantic/nonfactual
+classification are fallible—not proof of exhaustive factual correctness. Malformed
+protocol fails without replacing previous drafts; well-formed unsupported claims,
+incomplete inventories, required missing manual answers and exceeded limits publish
+inspectable **blocked** text. Optional manual requirements do not block by themselves.
+
+Inspection currently always returns `review_eligible:false,browser_eligible:false`
+and capabilities `generation:true,edit:false,reassess:false,review:false`. Pure
+one-call reassessment exists internally, but there is **no runtime edit/reassess/
+review endpoint** yet. No reviewed/submit badge or browser grant is created. Source/
+fact forgetting removes derived prose and provider responses by owner/application
+scope, including orphan responses, while retaining uncertain usage accounting.
+
+Legacy idempotency-key scope is migrated additively only from a retained canonical
+job with matching SQL/serialized identity and owner. If an older orphan's
+application scope cannot be proven, application deletion returns `409 CONFLICT`
+and rolls back instead of erasing another application's keys or claiming privacy
+completion. Explicit owner-wide evidence forgetting or profile deletion removes
+all owner keys; no automatic scope guess or background reset is performed.
