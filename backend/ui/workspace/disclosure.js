@@ -1,4 +1,5 @@
 import {DraftBuffer} from './drafting.js';
+import {validateAdmission} from './paid-launch.js';
 
 const copy = value => structuredClone(value);
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -130,7 +131,7 @@ function correlate(value, kind, request, targets, batch, savedTargets) {
   }
 }
 
-// A single generation fences both read-only preview operations, including the GET/POST boundary.
+// A single generation fences all read-only preview operations, including the GET/POST boundary.
 export class DisclosureController {
   #api; #owner; #application; #update; #base; #generation = 0; #retired = false;
   constructor({api, owner, application, update}) {
@@ -174,11 +175,15 @@ export class DisclosureController {
       if (kind === 'generation') request = {schema_version: 1, batch_id: batch.id, batch_sha256: batch.hash,
         expected_revisions: copy(state.current_revisions), ...settings};
       else require(same(state.current_revisions, request.expected_revisions));
+      let admission = null, admissionError = null;
+      try { admission = validateAdmission(copy(await this.#api(`${this.#base}/drafting-admission`)), this.#owner, this.#application); }
+      catch { admissionError = new Error('Admission could not be verified. This preview is read-only; paid launch is unavailable.'); }
       if (!current()) return;
       const result = copy(await this.#api(path, {method: 'POST', body: copy(request)}));
       if (!current()) return;
       correlate(result, kind, request, targets, batch, savedTargets);
-      this.#update('preview', {kind, request: copy(request), disclosure: result.disclosure, disclosure_sha256: result.disclosure_sha256, state}, null);
+      this.#update('preview', {kind, owner: this.#owner, application: this.#application, admission: copy(admission), request: copy(request), disclosure: result.disclosure, disclosure_sha256: result.disclosure_sha256, state,
+        packetInspection: kind === 'generation' ? capture : null, draftInspection: kind === 'assessment' ? capture : null}, admissionError);
     } catch (error) {
       if (current()) this.#update('preview', null, error);
     }

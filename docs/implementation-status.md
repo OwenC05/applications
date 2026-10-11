@@ -334,8 +334,8 @@ admission writer. Its CPU cost grows with retained history; no constant latency 
 claimed. Owned malformed publications block their owner; foreign reference auditing
 detects discoverable exact conflicting IDs without treating opaque foreign JSON as
 a global outage. This does not prove absence of hidden links in malformed foreign
-rows. Stop all old API/workers before upgrade. Paid UI launch, provider compatibility,
-full S6, Docker/friend installation and release qualification remain pending.
+rows. Stop all old API/workers before upgrade. Provider compatibility, full S6,
+Docker/friend installation and release qualification remain pending.
 
 The port-443 hostile-receiver test could not bind its privileged port on this
 host and remains skipped. An unprivileged rejected-URL receiver test observed
@@ -352,7 +352,26 @@ application actions are authorized by implementation tests.
 The preserved Node app and Python evidence workbench remain runnable separately.
 Python API-only generation, immutable local edits and clean export are described
 above, together with one-call unchanged-text reassessment; saved writing UI
-inspection/edit/export is a bounded preview. Paid UI controls, exact human review
-and browser automation remain unavailable pending their own integration and
-independent gates. Each
+inspection/edit/export and separately acknowledged paid UI controls are bounded
+previews. Exact human review and browser automation remain unavailable pending
+their own integration and independent gates. Each
 friend uses an independent local installation, not a hosted shared account.
+
+S6-B2c connects explicit generation and unchanged saved-edit assessment controls.
+Strict admission/selected-data capture precedes the final preview; acknowledgement
+is initially unchecked and cleared by context/configuration changes. Page-owned
+registry tokens serialize actions across retired/replacement views and retain exact
+unknown requests without replaying known jobs. Fresh terminal/result/admission
+resolution is explicit, not inferred from cached status or a matching head. Results
+are correlated server-verified publications, never browser-proven hashes or automatic
+editor adoption. Composed mutation locks preserve unrelated typing; direct cloud
+revocation and recognized privacy deletion retain their separate safety semantics.
+No background polling, private browser persistence, research launch, human review,
+form filling, submission or qualified friend release is introduced. Actual provider
+compatibility, semantic quality, Docker/restore and friend-install gates remain open.
+
+An explicit **Refresh local connection** control supports rotating local boot
+tokens after API restart without reloading the page or losing retained operations.
+It reads only the existing status endpoint, validates its closed DTO, and updates
+the connection credential—not scope, previews, buffers, consent or recovery.
+Reconciliation remains a separately chosen action; no automatic resend is added.

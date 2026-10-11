@@ -31,7 +31,7 @@ export function writingWarning(question, value) {
 // Controls and editor nodes survive unrelated refreshes. Only an intentional
 // selection/adoption replaces the baseline; a save acknowledgement never does.
 export function draftingPane({api, exportText, owner, application, edits, notify = () => {}, confirmDiscard = globalThis.confirm,
-  keyFactory = () => crypto.randomUUID(), onPublished = () => {}, recovery = null, onHandoff = () => false, onCaptureChange = () => {}}) {
+  keyFactory = () => crypto.randomUUID(), onPublished = () => {}, recovery = null, onHandoff = () => false, onCaptureChange = () => {}, isMutationLocked = () => false}) {
   let retired = false, inspection = null, buffer = null, saving = false, pending = null, savedChild = null, uncertain = false;
   let selectedDraft = '', selectedPacket = '', ownDirty = false, handedOff = false;
   let epoch = 0, packetInspection = null, observer = onCaptureChange;
@@ -46,7 +46,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     try { observer?.(capture()); } catch { /* Inspection observers cannot interrupt local writing or privacy cleanup. */ }
   }
   const controls = new Map();
-  const pane = section('Saved evidence and application writing', text('Local saved inspection, immutable editing and saved-text export. Read-only generation and saved-edit assessment disclosures are separate below; no paid launch, human review, autofill or submission is connected.', 'warning'));
+  const pane = section('Saved evidence and application writing', text('Local saved inspection, immutable editing and saved-text export. Separately acknowledged generation and unchanged saved-edit assessment are below; no human review, autofill or submission is connected.', 'warning'));
   const packetStatus = text('Refresh to inspect saved packets.'), draftStatus = text('Refresh to inspect saved drafts.'), editStatus = text(''), exportStatus = text('');
   for (const status of [packetStatus, draftStatus, editStatus, exportStatus]) { status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); }
   const packetSelect = node('select'), questionSelect = node('select'), draftSelect = node('select');
@@ -68,7 +68,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     sync();
   });
   const adopt = button('Inspect/adopt saved revision', () => {
-    if (!savedChild || saving || !discard()) return;
+    if (retired || isMutationLocked() || !savedChild || saving || !discard()) return;
     const child = savedChild;
     savedChild = null; pending = null; uncertain = false;
     controller.adoptDraft(child.draft.id); selectedDraft = child.draft.id;
@@ -97,15 +97,15 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     if ((ownDirty || uncertain || pending) && !confirmDiscard('Discard only this writing buffer? A save may already have occurred. Other forms are unchanged.')) return false;
     edits.acknowledge(edits.capture(form)); ownDirty = false; return true;
   }
-  function sync() {
-    save.disabled = retired || handedOff || saving || uncertain || Boolean(savedChild) || !buffer || inspection?.current !== true || !ownDirty;
+  function sync(emitCapture = true) {
+    save.disabled = retired || isMutationLocked() || handedOff || saving || uncertain || Boolean(savedChild) || !buffer || inspection?.current !== true || !ownDirty;
     resolve.disabled = retired || saving || !uncertain || !pending;
-    adopt.disabled = retired || handedOff || saving || uncertain || !savedChild;
+    adopt.disabled = retired || isMutationLocked() || handedOff || saving || uncertain || !savedChild;
     discardButton.disabled = retired || handedOff || saving || uncertain || (!ownDirty && !uncertain && !savedChild);
     download.disabled = retired || saving || !selectedDraft;
     draftSelect.disabled = retired || saving || (!selectedDraft && draftSelect.children.length <= 1);
     handoff.disabled = retired || saving || !uncertain || handedOff || !pending || !buffer;
-    changed();
+    if (emitCapture) changed();
   }
   function assessmentNotice() {
     if (!inspection) return '';
@@ -162,7 +162,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     updateCounters(); editStatus.textContent = assessmentNotice(); sync();
   }
   async function submit(replay) {
-    if (retired || saving || (replay ? !uncertain || !pending : save.disabled)) return;
+    if (retired || saving || (!replay && isMutationLocked()) || (replay ? !uncertain || !pending : save.disabled)) return;
     if (!replay) {
       pending = {parentCapture: copy(inspection), body: buffer.editRequest(keyFactory()), generation: edits.capture(form)};
     }
@@ -307,7 +307,17 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     }
     sync();
   }
-  return {element: pane, capture, get unresolved() { return saving || (uncertain && !handedOff); }, retire() {
+  async function selectSavedResult(id) {
+    if (retired || saving || uncertain || handedOff || typeof id !== 'string'
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id) || !discard()) return false;
+    selectedDraft = id; controller.adoptDraft(id);
+    if (![...draftSelect.children].some(item => item.value === id)) draftSelect.append(option(id, `${id} · explicitly selected saved result`));
+    draftSelect.value = id; inspection = null; buffer = null; pending = null; savedChild = null;
+    editor.replaceChildren(); savedPreview.replaceChildren(); ledger.replaceChildren(); draftInfo.replaceChildren(); sync();
+    await controller.draft(id);
+    return !retired && selectedDraft === id && inspection?.draft?.id === id && buffer !== null;
+  }
+  return {element: pane, capture, syncLocks() { sync(false); }, selectSavedResult, get unresolved() { return saving || (uncertain && !handedOff); }, retire() {
     if (retired) return;
     retired = true; controller.retire();
     for (const {input, onInput} of controls.values()) {

@@ -2,15 +2,16 @@
 
 A private, local-first internship application workspace for **technology and finance**. Includes the preserved dependency-free Node.js MVP and a separate Python/FastAPI evidence workbench.
 
-**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python also has reviewed profile/interview/proposal/application data APIs, an explicit legacy importer and an isolated workspace preview. Durable workers handle indexing and bounded static company/role research with original-source inspection through the API. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. Python now connects stored per-question packets to consent-gated, durable 3/5-call drafting through API routes, with exact-text evidence assessment and blocked-output inspection. The workspace adds saved packet/draft inspection, local immutable writing edits and saved-text export; paid launch/reassessment controls, human review, semantic quality qualification and supervised browser filling/submission remain unfinished. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
+**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python also has reviewed profile/interview/proposal/application data APIs, an explicit legacy importer and an isolated workspace preview. Durable workers handle indexing and bounded static company/role research with original-source inspection through the API. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. Python now connects stored per-question packets to consent-gated, durable 3/5-call drafting through API routes, with exact-text evidence assessment and blocked-output inspection. The workspace adds saved packet/draft inspection, local immutable writing edits and saved-text export; explicit paid generation/saved-edit assessment controls are connected with retained-request recovery. Human review, semantic quality qualification and supervised browser filling/submission remain unfinished. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
 
 Generation and reassessment API enqueue require an explicit captured drafting
 admission revision as well as the unchanged request/disclosure. A durable consumed
 counter prevents distinct-key admissions from the same capture, including after
 restart or terminal failure. Generic paid insertion/retry and worker dispatch are
 fenced together; exact retained legacy requests are read-only compatibility paths.
-Stop all old API/worker processes before upgrading. Paid workspace launch controls
-remain unavailable; this fence is not provider compatibility or release qualification.
+Stop all old API/worker processes before upgrading. Workspace paid controls require
+a fresh selected-data preview and a separate acknowledgement for each operation;
+this fence is not provider compatibility or release qualification.
 
 ## Start
 
@@ -119,19 +120,33 @@ page session. Successful application/profile deletion or source/proposal
 forgetting conservatively clears that owner's retained writing, including other
 applications that could contain deleted feedback facts.
 Hard reload/close loses this memory and is not reconciliation.
-A separate read-only disclosure pane inspects the selected packet's generation
-context or a current saved local edit's exact assessment text, model, purpose state
-and conservative usage ceilings. It never sends to a cloud provider or queues work.
-Changing writing, selections or configuration clears the preview. Monetary cost
-remains unknown—not zero—and a preview is not key/consent/budget readiness.
+If the API restarts, **Refresh local connection** fetches its current local boot
+token while keeping in-page recovery and unsaved text. It performs no automatic
+resend: choose exact reconciliation separately afterward. Failed refresh keeps
+the previous connection and recovery; a hard reload is still not recovery.
+A separate disclosure pane inspects the selected packet's generation context or
+a current saved local edit's exact assessment text, model, purpose state and
+conservative usage ceilings. Inspection itself does not send or queue work. An
+initially unchecked per-operation acknowledgement enables an explicit paid launch
+only with applicable consent, configured ceilings and a captured eligible admission.
+Changing writing, selections or configuration clears the preview/acknowledgement.
+Monetary cost remains unknown—not zero—and a preview is not key readiness or
+authoritative remaining budget. Status, cancel, result inspection and resolution
+are explicit actions, not background polling. Unknown enqueue outcomes retain the
+original request/key/counter in page memory: explicit identical reconciliation may
+first queue paid work. Once the job is known, it is never enqueued again by recovery.
+Hard reload loses that capsule; history cannot reconstruct it. A new operation is
+labelled new and requires a new preview/acknowledgement. Results never auto-adopt
+over your writing. Direct cloud-purpose revocation and scope deletion remain
+available; neither proves refund, cancellation or recall of already sent data.
 Settings also provides explicit profile-wide reservation-limit inspection and
 configuration. Enter all four limits and separately acknowledge them; refresh
 shows observed values without replacing inputs. These are not a money cap or
 cloud consent and can affect queued/running work. Saves are last-writer-wins.
 An unknown save outcome requires manual observation before a new update; refresh
 does not settle the earlier write or prevent another tab from changing limits.
-Cloud/research launch, paid drafting/reassessment, application review and browser
-actions are **not available in this preview**. Existing question text/order cannot yet be
+Cloud research launch, application review and browser actions are **not available
+in this preview**. Existing question text/order cannot yet be
 changed in its line editor: it refuses changes rather than reassigning IDs or
 constraints. Saved-state JSON export is not a qualified full backup. Independent
 review and synthetic actual-browser flows cover the data/activity and saved-writing
@@ -250,7 +265,7 @@ and inspection make no paid calls or key lookups. Reservation estimates use
 conservative UTF-8 input bytes plus output ceilings, **not exact tokens or prices**.
 See [the Python drafting API](API.md#python-drafting-generation-preview).
 
-This is API-only generation/publication and local editing, **not completed S5 or a qualified release**.
+This is bounded generation/publication and local editing, **not completed S5 or a qualified release**.
 Unsupported claims, missing required answers and exceeded limits remain visible.
 Semantic assessments and factual inventories are fallible, not truth certification.
 Explicit local edits create immutable unassessed revisions, clear the support

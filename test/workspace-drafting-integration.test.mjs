@@ -45,7 +45,7 @@ test('root mounts and retires writing separately without reloading or clearing u
 
 test('internal navigation blocks pending/unresolved writing without trapping explicit scope deletion', async () => {
   const source = await readFile(new URL('../backend/ui/workspace/app.js', import.meta.url), 'utf8');
-  assert.match(source, /function writingBlocksNavigation\(\) \{\s+if \(!writing\?\.unresolved\) return false;/);
+  assert.match(source, /function writingBlocksNavigation\(\) \{\s+if \(writing\?\.unresolved\)/);
   assert.match(source, /button\('Reload selected data', \(\) => \{\s+if \(writingBlocksNavigation\(\)\) return;/);
   assert.match(source, /application\.role\}`, \(\) => \{\s+if \(writingBlocksNavigation\(\)\) return;/);
   assert.match(source, /if \(writingBlocksNavigation\(\)\) \{ location\.hash = state\.route; return; \}/);
@@ -92,7 +92,7 @@ test('only successful privacy cleanup removes matching recovery scopes', async (
   assert.equal(recovery.has('owner', 'other-app'), false);
   assert.equal(recovery.has('other-owner', 'app'), true);
   const source = await readFile(new URL('../backend/ui/workspace/app.js', import.meta.url), 'utf8');
-  assert.equal((source.match(/operation\(\(\) => forgetWritingAfter\(\(\) => api\(/g) || []).length, 5);
+  assert.equal((source.match(/operation\(\(\) => forgetWritingAfter\('(?:workspace|evidence)', \(\) => api\(/g) || []).length, 5);
   assert.doesNotMatch(source, /async result => \{\s*writingRecovery\.forgetOwner/);
 });
 
@@ -124,7 +124,7 @@ test('actual root operation keeps privacy completion outside stale success/error
     gate.select(owner);
     const pending = operation(() => recovery.forgetOwnerAfter(owner, () => response), () => { after++; });
     owner = 'other'; gate.select(owner);
-    if (fail) reject(Object.assign(new Error('Conflict'), {status: 409})); else resolve({deleted: true});
+    if (fail) reject(Object.assign(new Error('Conflict'), {status: 409})); else resolve({schema_version: 1, deleted: true, cleanup_pending: false});
     await pending;
     assert.equal(recovery.has('owner', 'app'), fail);
     assert.equal(recovery.has('other', 'app'), true);
@@ -132,7 +132,7 @@ test('actual root operation keeps privacy completion outside stale success/error
   }
   const privacy = source.slice(source.indexOf('async function forgetWritingAfter('), source.indexOf('function context('));
   assert.match(privacy, /const owner = state.owner/);
-  assert.match(privacy, /await writingRecovery.forgetOwnerAfter\(owner, action\)/);
+  assert.match(privacy, /await writingRecovery.forgetOwnerAfter\(owner, async \(\) =>/);
   assert.match(privacy, /if \(state.owner === owner\) \{ writing\?\.retire\(\); writing = null; retireDisclosure\(\); retireBudget\(\); \}/);
 });
 
@@ -154,11 +154,11 @@ test('actual privacy completion retires same-owner writing but never another own
     let retired = 0, resolve, reject;
     const response = new Promise((yes, no) => { resolve = yes; reject = no; });
     let disclosureRetired = 0, budgetRetired = 0;
-    const helper = new Function('state', 'writingRecovery', 'startWriting', 'retireDisclosure', 'retireBudget', `let writing = startWriting; ${definition}; return {run: forgetWritingAfter, current: () => writing};`)(
-      state, recovery, {retire() { retired++; }}, () => { disclosureRetired++; }, () => { budgetRetired++; });
-    const pending = helper.run(() => response);
+    const helper = new Function('state', 'writingRecovery', 'paidRegistry', 'recognizedPrivacyDeletion', 'startWriting', 'retireDisclosure', 'retireBudget', `let writing = startWriting; ${definition}; return {run: forgetWritingAfter, current: () => writing};`)(
+      state, recovery, {forgetOwner() {}}, (kind, value) => kind === 'workspace' && value?.schema_version === 1 && value.deleted === true && typeof value.cleanup_pending === 'boolean', {retire() { retired++; }}, () => { disclosureRetired++; }, () => { budgetRetired++; });
+    const pending = helper.run('workspace', () => response);
     if (switched) state.owner = 'other';
-    if (fail) reject(Error('Deletion failed')); else resolve({deleted: true});
+    if (fail) reject(Error('Deletion failed')); else resolve({schema_version: 1, deleted: true, cleanup_pending: false});
     if (fail) await assert.rejects(pending); else await pending;
     assert.equal(retired, !switched && !fail ? 1 : 0);
     assert.equal(disclosureRetired, !switched && !fail ? 1 : 0);
@@ -171,11 +171,11 @@ test('actual privacy completion retires same-owner writing but never another own
 
 test('quarantine locks input/history writes, remounts scoped recovery and warns on hard close', async () => {
   const source = await readFile(new URL('../backend/ui/workspace/app.js', import.meta.url), 'utf8');
-  assert.match(source, /if \(application && writingRecovery.has\(application.profile_id, application.application_id\)\) return notify/);
-  assert.match(source, /if \(writingRecovery.has\(application.profile_id, application.application_id\)\) return notify\('History writes/);
+  assert.match(source, /if \(application && applicationMutationLocked\(application.profile_id, application.application_id\)\) return notify/);
+  assert.match(source, /if \(applicationMutationLocked\(application.profile_id, application.application_id\)\) return notify\('History writes/);
   assert.match(source, /recovery: writingRecovery.get\(state.owner, application.application_id\)/);
   assert.match(source, /const retained = writingRecovery.retain\(application.profile_id, application.application_id, capsule\)/);
-  assert.match(source, /if \(state.dirty \|\| writingRecovery.size\)/);
+  assert.match(source, /if \(state.dirty \|\| writingRecovery.size \|\| paidRegistry.size\)/);
 });
 
 test('ending global busy state does not visually unlock quarantined form actions', async () => {
@@ -184,14 +184,14 @@ test('ending global busy state does not visually unlock quarantined form actions
   const locked = {dataset: {writingLocked: 'true'}, disabled: true};
   const ordinary = {dataset: {}, disabled: false};
   const state = {busy: false};
-  const busy = new Function('state', 'document', `return (${definition.trim()});`)(
-    state, {querySelectorAll: () => [locked, ordinary]});
+  const busy = new Function('state', 'document', 'applicationLocks', 'writing', `return (${definition.trim()});`)(
+    state, {querySelectorAll: () => [locked, ordinary]}, null, null);
   busy(true);
   assert.equal(locked.disabled, true); assert.equal(ordinary.disabled, true);
   busy(false);
   assert.equal(state.busy, false);
   assert.equal(locked.disabled, true); assert.equal(ordinary.disabled, false);
-  assert.match(source, /control.dataset.writingLocked = 'true'/);
+  assert.match(source, /control.dataset.writingLocked = locked \? 'true' : 'false'/);
 });
 
 test('root mounts a read-only disclosure bridge without changing saved-output or edit ownership', async () => {
@@ -208,7 +208,7 @@ test('root mounts a read-only disclosure bridge without changing saved-output or
 
 test('domain input invalidates a disclosure without clearing buffers or replacing its controls', async () => {
   const source = await readFile(new URL('../backend/ui/workspace/app.js', import.meta.url), 'utf8');
-  const definition = source.slice(source.indexOf('function invalidateDisclosureInput('), source.indexOf('function writingBlocksNavigation('));
+  const definition = source.slice(source.indexOf('function invalidateDisclosureInput('), source.indexOf('function exactEnvelope('));
   let invalidated = 0;
   const own = {}, other = {};
   const disclosure = {element: {contains: target => target === own}, invalidate() { invalidated++; }};

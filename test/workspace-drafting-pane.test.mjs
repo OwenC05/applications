@@ -37,7 +37,7 @@ function accepted(parent, body, id = 'child') {
     pre_revisions: body.expected_revisions, request: body, text_sha256: child.text_sha256, ledger_sha256: child.ledger_sha256, style_notes: []};
   return child;
 }
-async function harness({respond, confirmDiscard = () => true, exportText = async () => 'SAVED export', recovery = null, onHandoff = () => false, onCaptureChange = () => {}, initialize = true} = {}) {
+async function harness({respond, confirmDiscard = () => true, exportText = async () => 'SAVED export', recovery = null, onHandoff = () => false, onCaptureChange = () => {}, isMutationLocked = () => false, initialize = true} = {}) {
   const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
   const calls = [], edits = new EditBuffers(), notices = [], published = [];
   const parent = inspection();
@@ -46,7 +46,7 @@ async function harness({respond, confirmDiscard = () => true, exportText = async
     if (path.endsWith('/packets')) return {batches: []};
     return parent;
   };
-  const pane = draftingPane({api, exportText, recovery, onHandoff, onCaptureChange, owner: 'owner', application: 'app', edits, notify: value => notices.push(value), keyFactory: () => 'logical-key', confirmDiscard, onPublished: value => published.push(value)});
+  const pane = draftingPane({api, exportText, recovery, onHandoff, onCaptureChange, isMutationLocked, owner: 'owner', application: 'app', edits, notify: value => notices.push(value), keyFactory: () => 'logical-key', confirmDiscard, onPublished: value => published.push(value)});
   const select = selectNamed(pane.element, 'Saved draft revision');
   if (initialize) { find(pane.element, 'Refresh saved draft list').click(); await tick(); select.value = 'parent'; select.onchange(); await tick(); }
   const input = walk(pane.element).find(item => item.tagName === 'textarea');
@@ -480,4 +480,50 @@ test('privacy retirement removes own captured prose and form state, preserves un
     assert.equal(h.published.length, 0); assert.equal(downloads, 0);
     assert.doesNotMatch(h.pane.element.textContent, /PRIVATE|Saved 🚀/);
   } finally { h.restore(); URL.createObjectURL = create; }
+});
+
+test('composed paid mutation lock guards manual save handlers without touching buffers or capture epochs', async () => {
+  let locked = false; const captures = [];
+  const h = await harness({isMutationLocked: () => locked, onCaptureChange: value => captures.push(value)});
+  try {
+    type(h.input, 'Newer e\u0301 😀'); const other = {}; h.edits.changed(other);
+    const baseline = h.pane.capture(), count = captures.length, calls = h.calls.length;
+    locked = true; h.pane.syncLocks();
+    assert.equal(find(h.pane.element, 'Save new local revision').disabled, true);
+    find(h.pane.element, 'Save new local revision').click(); await tick();
+    assert.equal(h.calls.length, calls); assert.equal(h.input.value, 'Newer e\u0301 😀');
+    assert.equal(h.pane.capture().epoch, baseline.epoch); assert.equal(captures.length, count);
+    assert.equal(h.edits.forms.get(other).dirty, true);
+    locked = false; h.pane.syncLocks(); assert.equal(find(h.pane.element, 'Save new local revision').disabled, false);
+  } finally { h.restore(); }
+});
+
+test('explicit paid result selection uses scoped server inspection and ordinary discard without adopting arrival', async () => {
+  const id = '44444444-4444-4444-8444-444444444444'; let allow = false;
+  const h = await harness({confirmDiscard: () => allow, respond(path) { if (path.endsWith(`/drafts/${id}`)) return inspection(id, 'Correlated result'); }});
+  try {
+    const other = {}; h.edits.changed(other); type(h.input, 'Keep my buffer');
+    const count = h.calls.length;
+    assert.equal(await h.pane.selectSavedResult(id), false); assert.equal(h.calls.length, count);
+    assert.equal(h.input.value, 'Keep my buffer');
+    assert.equal(await h.pane.selectSavedResult('not-a-uuid'), false);
+    allow = true; assert.equal(await h.pane.selectSavedResult(id), true);
+    assert.equal(h.select.value, id); assert.equal(h.pane.capture().draftInspection.draft.id, id);
+    assert.equal(h.edits.forms.get(other).dirty, true);
+    h.pane.retire(); assert.equal(await h.pane.selectSavedResult(id), false);
+  } finally { h.restore(); }
+});
+
+test('explicit result selection cannot abandon uncertain writing or claim success after failed detail', async () => {
+  const id = '44444444-4444-4444-8444-444444444444';
+  const h = await harness({respond(path, options) { if (options?.method === 'POST' || path.endsWith(`/drafts/${id}`)) throw Error('Synthetic lost response'); }});
+  try {
+    assert.equal(await h.pane.selectSavedResult(id), false);
+    h.select.value = 'parent'; h.select.onchange(); await tick();
+    const input = walk(h.pane.element).find(item => item.tagName === 'textarea');
+    type(input, 'Retain exact writing'); find(h.pane.element, 'Save new local revision').click(); await tick();
+    const count = h.calls.length;
+    assert.equal(await h.pane.selectSavedResult(id), false); assert.equal(h.calls.length, count);
+    assert.equal(input.value, 'Retain exact writing');
+  } finally { h.restore(); }
 });

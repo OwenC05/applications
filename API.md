@@ -602,3 +602,31 @@ an assessment without resetting edit depth. There are at most 64 edit links and
 128 total edit/assessment links per generation, excluding its generation root.
 Accepted mixed history is integrity-checked before stale inspection/export. No
 human-review badge, submission grant or semantic-quality qualification is created.
+
+### Explicit workspace paid controls (bounded preview)
+
+The isolated Python workspace now connects selected-data previews to explicit
+acknowledged generation and unchanged saved-edit assessment. Admission is captured
+before final preview display and never silently rebased at launch or after errors.
+One owner/application operation retains its exact endpoint, wrapper, key and counter
+in page memory before POST. Unknown outcomes require explicit identical reconciliation
+(which may first queue work); a known job only supports explicit status, cancellation,
+result inspection and resolution. Resolution repeats terminal/result correlation and
+a fresh eligible admission read; cached status alone cannot unlock another launch.
+No private request is persisted in browser storage. Hard reload loses memory and
+cannot reconstruct an original request from history, timestamps or matching kinds.
+After an API restart, explicitly use **Refresh local connection** to obtain the
+new local boot token without reloading or clearing page memory. This performs only
+the existing status GET; it does not resend, resolve or acknowledge any operation.
+Then separately choose original-request reconciliation or a known-job action.
+
+Client result checks correlate the server-verified publication to the retained job,
+fence, request context, revisions and assessment parent. They are not independent
+canonical-hash or semantic proof. Results do not auto-select/adopt or acknowledge
+unsaved buffers. The application pane exposes all-purpose revocation even while a
+paid request is pending; only a strict returned consent record is recognized as
+success. Recognized endpoint-specific privacy deletion clears the captured owner's
+paid/writing recovery before stale UI-response suppression; malformed readable 2xx
+responses do not clear it. No cloud research launch, human review, fill or submission
+authority is introduced. Real provider compatibility, quality and release gates
+remain separate from synthetic local integration evidence.
