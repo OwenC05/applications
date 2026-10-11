@@ -16,6 +16,7 @@ from .config import Settings
 from .contracts import Citation, EvidenceError, Span
 from .documents import ingest
 from .domain.contracts import Contract, Revision, canonical_hash
+from .drafting.assessment_contracts import AssessmentPreviewRequest, AssessmentRequest
 from .drafting.edit_contracts import EditRequest
 from .drafting.runtime_contracts import DraftPreviewRequest, DraftRequest
 from .drafting.service import DraftingService
@@ -191,7 +192,7 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
         return {'token': token, 'mode': 'quote_only', 'models_ready': False,
                 'model_readiness': 'not_checked_in_request',
                 'pending_cleanup': pending, 'pending_generation_cleanup': generation_pending, 'cloud_enabled': False,
-                'available_job_handlers': ['index', 'research', 'packets', 'draft'],
+                'available_job_handlers': ['index', 'research', 'packets', 'draft', 'assess'],
                 'setup': 'python -m copilot.models setup',
                 'indexing': 'python -m copilot index --profile ID --corpus facts|documents'}
 
@@ -277,7 +278,7 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
                                                        (job.profile_id, job.id)).fetchone())
             result['cleanup_pending'] = result['cleanup_pending'] or bool(db.execute("SELECT 1 FROM research_intents WHERE owner=? AND job_id=? AND state='cleanup_pending' LIMIT 1", (job.profile_id, job.id)).fetchone())
         if result['stage'] not in {'queued', 'started', 'index_published', 'cancelled',
-                                  'research_published', 'packets_published', 'draft_published', 'drafting_failed', 'scope_forgotten', 'missing_scope', 'stale_inputs', 'lease_limit', 'provider_unknown'}:
+                                  'research_published', 'packets_published', 'draft_published', 'assessment_published', 'drafting_failed', 'scope_forgotten', 'missing_scope', 'stale_inputs', 'lease_limit', 'provider_unknown'}:
             result['stage'] = 'working'
         return result
 
@@ -386,6 +387,17 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
     def workspace_draft_export(profile_id: str, application_id: str, draft_id: str):
         return PlainTextResponse(drafting.export(profile_id, application_id, draft_id),
                                  headers={'Content-Disposition': 'attachment; filename="application-draft.txt"'})
+
+    @app.post(draft_base + '/{draft_id}/assessment/preview')
+    async def workspace_assessment_preview(profile_id: str, application_id: str, draft_id: str, request: Request):
+        body = await workspace_input(request, AssessmentPreviewRequest)
+        return await run_in_threadpool(drafting.assessment_preview, profile_id, application_id, draft_id, body)
+
+    @app.post(draft_base + '/{draft_id}/assessment', status_code=202)
+    async def workspace_assessment_enqueue(profile_id: str, application_id: str, draft_id: str, request: Request):
+        body = await workspace_input(request, AssessmentRequest)
+        job = await run_in_threadpool(drafting.enqueue_assessment, profile_id, application_id, draft_id, body)
+        return {'schema_version': 1, 'job': job_summary(job)}
 
     budget_base = '/api/workspace/profiles/{profile_id}/budget'
 

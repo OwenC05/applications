@@ -447,9 +447,9 @@ incomplete inventories, required missing manual answers and exceeded limits publ
 inspectable **blocked** text. Optional manual requirements do not block by themselves.
 
 Inspection currently always returns `review_eligible:false,browser_eligible:false`
-and capabilities `generation:true,edit:true,reassess:false,review:false`. Local
-edit/export routes are described below. Pure one-call reassessment exists
-internally, but there is **no runtime reassess/review endpoint** yet.
+and capabilities `generation:true,edit:true,reassess:true,review:false`. Local
+edit/export and one-call reassessment routes are described below. There is
+**no runtime human-review endpoint** yet.
 No reviewed/submit badge or browser grant is created. Source/
 fact forgetting removes derived prose and provider responses by owner/application
 scope, including orphan responses, while retaining uncertain usage accounting.
@@ -500,3 +500,45 @@ provider payloads or publication internals. Intact stale/blocked text is
 exportable; corrupt associations are not. Download is not review or submission
 authorization, and downloaded copies are outside managed forgetting. Editing,
 inspection and export do not initialize models, read a cloud key or send requests.
+
+### One-call unchanged-text reassessment
+
+Only a **current, unassessed local edit** can be reassessed. To use this bounded
+preview, explicitly grant both `drafting` and `assessment` purposes **before
+generation**. Assessment consent is optional and is never silently expanded.
+Adding it later changes the shared consent revision and stales the saved edit;
+assessment then rejects with no send, while intact text/history/export remain
+available. An identical edit is not a stale-input recovery path; this increment
+requires a fresh generation rather than silently rebasing old text.
+
+`POST .../drafts/{draft_id}/assessment/preview` accepts full `expected_revisions`,
+`parent_text_sha256,parent_ledger_sha256,parent_publication_sha256`, `model` and
+`max_output_tokens` (1–8,000; default 2,000). It returns exact selected context
+**and edited text**, their hashes, model/prompt/schema versions, current ceilings,
+maximum one call and `131072+max_output_tokens` conservative reservation units.
+These are input-byte/output-ceiling estimates, not exact tokens or monetary cost.
+Preview does not read a key or enable cloud/budgets.
+
+`POST .../assessment` adds `idempotency_key,disclosure_sha256,acknowledged:true`
+and returns 202 job envelope. The worker requires current **assessment-purpose**
+consent, key, one-call budget headroom and unchanged canonical/original evidence.
+Exact retained-job replay precedes currentness but validates full captured scope,
+request and parent association—not merely a matching key digest. Changed requests
+conflict. Queue/inspection performs no cloud call or key lookup.
+
+The worker executes one critique, never a rewrite even if the model requests one.
+Atomic `assessment_published` creates a new immutable assessed revision with the
+parent's exact texts/packet IDs and fresh ledger, advancing output once. Unsupported
+claims, incomplete inventories, missing required manual answers and exceeded limits
+remain blocked; reassessment does not confirm facts or resolve manual questions.
+Failed/cancelled work leaves prior drafts untouched. Completed provider stages can
+be reused after reclaim with matching immutable payloads; prepared/unknown outcomes
+retain reservations and are never automatically resent. Current terminal records
+bind the final fence; reused completed intermediate stages may retain an earlier
+positive fence.
+
+An assessment must immediately follow an unassessed edit; local edits may follow
+an assessment without resetting edit depth. There are at most 64 edit links and
+128 total edit/assessment links per generation, excluding its generation root.
+Accepted mixed history is integrity-checked before stale inspection/export. No
+human-review badge, submission grant or semantic-quality qualification is created.

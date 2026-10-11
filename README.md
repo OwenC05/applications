@@ -210,6 +210,12 @@ ledger and advance output once. Exact retries return the same revision; a newer
 output makes its parent stale. Up to 64 edit links per generation are supported.
 Intact stale or blocked drafts can be downloaded as plain text; downloaded copies
 are outside managed deletion. Editing/export requires no cloud key or paid call.
-Runtime reassessment, exact human review and browser handoff are not enabled;
+An explicitly consented reassessment of a current unassessed edit uses **one
+provider call**, preserves its text exactly, and publishes a fresh assessed
+revision. No rewrite is performed. To use this preview, explicitly grant both
+`drafting` and `assessment` purposes **before generation**. Adding consent later
+stales saved edits; this increment does not silently refresh or reauthorize them.
+Mixed histories allow at most 64 edits and 128 edit/assessment links per generation.
+Exact human review and browser handoff are not enabled;
 `review_eligible` and `browser_eligible` remain false.
 No real provider request or human-labelled semantic-quality gate has been run.

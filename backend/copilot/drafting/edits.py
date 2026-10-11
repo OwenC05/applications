@@ -41,7 +41,7 @@ class DraftEdits:
         if (request.parent_text_sha256, request.parent_ledger_sha256, request.parent_publication_sha256) != (
                 parent.text_sha256, parent.ledger_sha256, publication.publication_sha256):
             conflict('Local edit parent hashes changed')
-        depth = publication.edit_depth if isinstance(publication, EditPublication) else 0
+        depth = self.service._edit_depth(publication)
         if depth >= 64:
             conflict('Local edit lineage limit reached')
         validate_targets(parameters.context, request.draft.targets)
@@ -101,11 +101,11 @@ class DraftEdits:
         publication = validated(publication, EditPublication)
         if (publication.profile_id, publication.application_id, publication.draft_id) != (owner, application_id, draft_id):
             conflict('Local edit publication scope mismatch')
-        if not visited or visited[-1] != draft_id or len(visited) != len(set(visited)) or len(visited) > 65:
+        if not visited or visited[-1] != draft_id or len(visited) != len(set(visited)) or len(visited) > 128:
             conflict('Local edit lineage is invalid')
         parent, parent_publication, parameters, batch = self.service._association(
             db, owner, application_id, publication.parent_draft_id, visited=visited)
-        depth = parent_publication.edit_depth if isinstance(parent_publication, EditPublication) else 0
+        depth = self.service._edit_depth(parent_publication)
         request = publication.request
         if (publication.edit_depth != depth + 1
                 or publication.pre_revisions != parent.revisions

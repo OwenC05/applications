@@ -159,6 +159,8 @@ class Worker:
                         self.research().run_research(job.id, self.worker_id, job.fence)
                     elif job.kind == 'draft':
                         self.drafting().run_draft(job.id, self.worker_id, job.fence)
+                    elif job.kind == 'assess':
+                        self.drafting().run_assess(job.id, self.worker_id, job.fence)
                     else:
                         raise EvidenceError('HANDLER_UNAVAILABLE', 'No handler is available for this job', 503)
             except Exception as exc:

@@ -53,7 +53,7 @@ def test_http_immutable_edit_replay_and_clean_current_stale_export(drafting, tmp
         assert edited['current'] and child['answers'][0]['text'] == text
         assert child['ledger'] == [] and child['assessment_state'] == 'unassessed'
         assert not child['inventory_complete'] and not edited['review_eligible'] and not edited['browser_eligible']
-        assert edited['capabilities'] == dict(generation=True, edit=True, reassess=False, review=False)
+        assert edited['capabilities'] == dict(generation=True, edit=True, reassess=True, review=False)
         assert 'ASSESSMENT_REQUIRED' in edited['reason_codes']
         assert child['revisions']['application_output'] == parent.revisions.application_output + 1
         replay = client.post(f'{base}/{parent.id}/edits', json=payload)

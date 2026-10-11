@@ -51,7 +51,7 @@ def test_generation_edit_edit_exact_text_immutable_parent_no_paid_io(drafting): 
     assert not detail['review_eligible'] and not detail['browser_eligible']
     assert 'ASSESSMENT_REQUIRED' in detail['reason_codes']
     assert 'MANUAL_REQUIREMENTS_UNRESOLVED' in detail['reason_codes']
-    assert detail['capabilities'] == dict(generation=True, edit=True, reassess=False, review=False)
+    assert detail['capabilities'] == dict(generation=True, edit=True, reassess=True, review=False)
     assert service.detail(scope.profile_id, scope.application_id, parent.id)['draft'] == parent.model_dump(mode='json')
     assert len(sent) == 3
     with service.store._read() as db:

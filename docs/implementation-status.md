@@ -214,8 +214,21 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   managed forgetting. Managed canonical changes before CAS reject; original-file
   corruption observed during verification rejects, but unmanaged filesystem
   mutation after that check is not atomically prevented. No cloud/model/key access
-  or review/browser eligibility is introduced. Runtime one-call reassessment,
-  exact human review, integrated UI and semantic/release gates remain pending.
+  or review/browser eligibility is introduced. At this publication, runtime
+  reassessment, exact human review, integrated UI and semantic/release gates were pending.
+- **S5 one-call reassessment increment:** a current unassessed local edit can
+  disclose exact text/context and queue a separate assessment-purpose job. One
+  critique publishes a new immutable same-text revision with fresh ledger; no
+  rewrite or fact confirmation occurs. Intent, original-source guards, canonical
+  recapture, explicit limits and atomic output publication retain the generation
+  failure/uncertainty boundaries. Completed-stage reuse binds immutable payloads
+  and permits earlier positive intermediate fences with a current terminal fence.
+  Required manual questions and semantic blocks remain unresolved/visible. Mixed
+  histories carry edit depth across assessments, with 64 edits/128 total links.
+  Assessment consent must be explicitly granted before generation; adding it later
+  stales old edits rather than silently rebasing them. Preview/queue/inspection
+  read no key or models. Exact human review, integrated UI and human/paid semantic
+  and release qualification remain pending; review/browser eligibility stays false.
 - **S6 data preview only:** `/ui/workspace/index.html` connects canonical Python
   onboarding, pending confirmations, application inputs, feedback, selected
   document import and hybrid quotation/citation inspection. Separate typed values,
@@ -258,6 +271,7 @@ application actions are authorized by implementation tests.
 
 The preserved Node app and Python evidence workbench remain runnable separately.
 Python API-only generation, immutable local edits and clean export are described
-above; runtime reassessment/review, the unified drafting UI and browser automation remain unavailable pending their
+above, together with one-call unchanged-text reassessment; exact human review,
+the unified drafting UI and browser automation remain unavailable pending their
 own integration and independent gates. Each
 friend uses an independent local installation, not a hosted shared account.

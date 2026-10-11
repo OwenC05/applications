@@ -221,6 +221,29 @@ class DraftingService:
         from .edits import DraftEdits
         return DraftEdits(self).edit(owner, application_id, parent_id, request)
 
+    def assessment_preview(self, owner, application_id, parent_id, request):
+        from .assessments import DraftAssessments
+        return DraftAssessments(self).preview(owner, application_id, parent_id, request)
+
+    def enqueue_assessment(self, owner, application_id, parent_id, request):
+        from .assessments import DraftAssessments
+        return DraftAssessments(self).enqueue(owner, application_id, parent_id, request)
+
+    def run_assess(self, job_id, worker_id, fence):
+        from .assessments import DraftAssessments
+        return DraftAssessments(self).run(job_id, worker_id, fence)
+
+    def _edit_depth(self, publication):
+        if type(publication) is DraftPublication:
+            return 0
+        from .edit_contracts import EditPublication
+        if type(publication) is EditPublication:
+            return publication.edit_depth
+        from .assessment_contracts import AssessmentPublication
+        if type(publication) is AssessmentPublication:
+            return publication.edit_depth
+        conflict('Draft publication lineage type mismatch')
+
     def export(self, owner, application_id, draft_id):
         inspection = self.detail(owner, application_id, draft_id)
         draft = inspection['draft']
@@ -235,7 +258,7 @@ class DraftingService:
         return '\n\n'.join(parts)
 
     def _association(self, db, owner, application_id, draft_id, *, visited=()):
-        if draft_id in visited or len(visited) > 64:
+        if draft_id in visited or len(visited) > 128:
             conflict('Draft lineage is cyclic or exceeds bounds')
         self.domain._get(db, owner, application_id, 'application', c.ApplicationRecord)
         draft = self.domain._get(db, owner, draft_id, 'draft', c.DraftRevision)
@@ -249,15 +272,22 @@ class DraftingService:
             conflict('Draft publication schema mismatch')
         if 'origin' not in raw:
             return self._generation_association(db, owner, application_id, draft_id)
-        if raw['origin'] != 'edit' or len(visited) >= 64:
+        if raw['origin'] not in ('edit', 'assessment') or len(visited) >= 128:
             conflict('Draft publication origin or lineage exceeds bounds')
-        from .edit_contracts import EditPublication
-        from .edits import DraftEdits
-        publication = EditPublication.model_validate_json(rows[0][1])
+        if raw['origin'] == 'edit':
+            from .edit_contracts import EditPublication
+            from .edits import DraftEdits
+            publication = EditPublication.model_validate_json(rows[0][1])
+            handler = DraftEdits(self)
+        else:
+            from .assessment_contracts import AssessmentPublication
+            from .assessments import DraftAssessments
+            publication = AssessmentPublication.model_validate_json(rows[0][1])
+            handler = DraftAssessments(self)
         if publication.id != rows[0][0]:
             conflict('Draft publication identity mismatch')
-        return DraftEdits(self).association(db, owner, application_id, draft_id,
-                                           publication, visited + (draft_id,))
+        return handler.association(db, owner, application_id, draft_id,
+                                   publication, visited + (draft_id,))
 
     def _generation_association(self, db, owner, application_id, draft_id):
         self.domain._get(db, owner, application_id, 'application', c.ApplicationRecord)
@@ -372,7 +402,7 @@ class DraftingService:
             canonical_questions=[q.model_dump(mode='json') for q in batch.canonical_questions],
             manual_requirements=[m.model_dump(mode='json') for m in batch.manual_requirements],
             semantic_assessment='fallible_not_release_qualified', review_eligible=False, browser_eligible=False,
-            capabilities=dict(generation=True, edit=True, reassess=False, review=False))
+            capabilities=dict(generation=True, edit=True, reassess=True, review=False))
 
     def list(self, owner, application_id):
         with self.store._read() as db:

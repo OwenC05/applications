@@ -71,14 +71,16 @@ def test_uncertain_paid_attempt_is_never_failed_or_released(setup, state):  # no
         assert db.execute('SELECT * FROM provider_attempts WHERE job_id=?', (job.id,)).fetchall() == before
 
 
-def test_worker_dispatches_draft_without_loading_retrieval_or_key(setup):  # noqa: F811
+@pytest.mark.parametrize('kind', ['draft', 'assess'])
+def test_worker_dispatches_paid_handler_without_loading_retrieval_or_key(setup, kind):  # noqa: F811
     store, _, jobs, clock = setup
-    job = queued(setup)
+    job = queued(setup, kind)
     calls = []
     class Handler:
         def run_draft(self, job_id, worker, fence):
             calls.append(job_id)
             jobs.finish(job_id, worker, fence)
+        run_assess = run_draft
     worker = Worker(store, lambda: pytest.fail('Retrieval models must not load'),
                     drafting_factory=lambda s, j: Handler())
     worker.jobs.clock = clock
