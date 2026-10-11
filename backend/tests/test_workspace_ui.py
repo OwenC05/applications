@@ -22,7 +22,7 @@ def test_workspace_static_preview_preserves_default_and_avoids_models(tmp_path):
         assert 'Python workspace preview' in preview.text
         assert 'Nothing is submitted for you.' in preview.text
         assert "script-src 'self'" in preview.headers['content-security-policy']
-        for asset in ('app.js', 'client.js', 'dom.js', 'questions.js', 'drafting.js', 'drafting-pane.js', 'disclosure.js', 'disclosure-pane.js', 'styles.css'):
+        for asset in ('app.js', 'client.js', 'dom.js', 'questions.js', 'drafting.js', 'drafting-pane.js', 'disclosure.js', 'disclosure-pane.js', 'budget-pane.js', 'styles.css'):
             response = client.get('/ui/workspace/' + asset)
             assert response.status_code == 200
             assert response.headers['x-content-type-options'] == 'nosniff'

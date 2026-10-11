@@ -167,6 +167,29 @@ no horizontal overflow; a scoped axe scan found no violations. This is not full
 accessibility conformance or paid-provider/release evidence. The backend fixture
 predates the narrow strict-counter repair, which has separate fresh HTTP tests.
 
+### Explicit reservation settings — S6-B2a
+
+Settings exposes a separate profile-wide reservation-limits pane, not a paid
+drafting launch. Four labelled integer fields start blank. Users explicitly
+refresh observed configuration or separately acknowledge and save entered limits.
+Show observed values separately; never populate or replace inputs during refresh,
+clear unrelated forms, or acknowledge newer typing. Keep numeric controls stable
+and editable while a request is pending. Reset acknowledgement on edits and requests.
+
+Limits are conservative reservation units, not a monetary cap, cloud consent or
+key readiness. They can affect already queued/running work. Explain last-writer-wins
+behavior: other tabs or earlier pending requests may change the configuration.
+An unreadable, failed or mismatching save response means outcome unknown, not
+rollback. Require explicit refresh before another save; that GET only observes
+current configuration and does not settle the earlier write. Retain the warning;
+a later separately acknowledged save is a new update, not reconciliation.
+
+Retirement scrubs this pane's retained controls/content and forgets only its own
+dirty form. Suppress late responses without claiming to cancel server writes.
+No background IO, provider keys, paid launch or browser-storage recovery is added.
+Paid enqueue awaits a separate durable admission fence; page-memory recovery alone
+cannot prevent competing operations after reload or in another tab.
+
 ### Bounded application-activity preview (earlier increment)
 
 The published job/status/cancel/usage and static-research inspection contracts

@@ -133,7 +133,7 @@ test('actual root operation keeps privacy completion outside stale success/error
   const privacy = source.slice(source.indexOf('async function forgetWritingAfter('), source.indexOf('function context('));
   assert.match(privacy, /const owner = state.owner/);
   assert.match(privacy, /await writingRecovery.forgetOwnerAfter\(owner, action\)/);
-  assert.match(privacy, /if \(state.owner === owner\) \{ writing\?\.retire\(\); writing = null; retireDisclosure\(\); \}/);
+  assert.match(privacy, /if \(state.owner === owner\) \{ writing\?\.retire\(\); writing = null; retireDisclosure\(\); retireBudget\(\); \}/);
 });
 
 test('retiring an owned writing form forgets only its browser tracking without acknowledging another form', () => {
@@ -153,15 +153,16 @@ test('actual privacy completion retires same-owner writing but never another own
     recovery.retain('owner', 'app', capsule()); recovery.retain('other', 'app', capsule('other', 'app'));
     let retired = 0, resolve, reject;
     const response = new Promise((yes, no) => { resolve = yes; reject = no; });
-    let disclosureRetired = 0;
-    const helper = new Function('state', 'writingRecovery', 'startWriting', 'retireDisclosure', `let writing = startWriting; ${definition}; return {run: forgetWritingAfter, current: () => writing};`)(
-      state, recovery, {retire() { retired++; }}, () => { disclosureRetired++; });
+    let disclosureRetired = 0, budgetRetired = 0;
+    const helper = new Function('state', 'writingRecovery', 'startWriting', 'retireDisclosure', 'retireBudget', `let writing = startWriting; ${definition}; return {run: forgetWritingAfter, current: () => writing};`)(
+      state, recovery, {retire() { retired++; }}, () => { disclosureRetired++; }, () => { budgetRetired++; });
     const pending = helper.run(() => response);
     if (switched) state.owner = 'other';
     if (fail) reject(Error('Deletion failed')); else resolve({deleted: true});
     if (fail) await assert.rejects(pending); else await pending;
     assert.equal(retired, !switched && !fail ? 1 : 0);
     assert.equal(disclosureRetired, !switched && !fail ? 1 : 0);
+    assert.equal(budgetRetired, !switched && !fail ? 1 : 0);
     assert.equal(helper.current() === null, !switched && !fail);
     assert.equal(recovery.has('owner', 'app'), fail);
     assert.equal(recovery.has('other', 'app'), true);

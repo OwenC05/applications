@@ -299,6 +299,19 @@ captured console/runtime errors were empty. The fixture's backend import predate
 the narrow strict retained-counter repair; fresh backend HTTP/regression tests
 cover that repair separately. No paid provider or release qualification is claimed.
 
+S6-B2a adds explicit Settings-only profile reservation-limit inspection/configuration
+through the existing budget API. Four blank integer inputs, a separate unchecked
+acknowledgement and request guards prevent implicit configuration or duplicate
+in-flight saves. Refresh displays an observed snapshot without replacing fields
+or acknowledging edits; matching save readback acknowledges only its submitted
+form generation. Unknown saves retain inputs/dirty state and require explicit
+observation before a new acknowledged last-writer-wins update. That observation
+does not settle prior writes. Limits are not monetary caps, consent or key checks
+and may affect already queued/running work. No paid-launch or provider action is
+introduced. Paid enqueue remains separately gated on a durable admission fence:
+page-memory recovery and job-list snapshots cannot prevent distinct-key admissions
+after reload or from another tab. Full S6 and release qualification remain pending.
+
 The port-443 hostile-receiver test could not bind its privileged port on this
 host and remains skipped. An unprivileged rejected-URL receiver test observed
 zero connections; that and one successful public fetch do not establish the

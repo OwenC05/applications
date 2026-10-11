@@ -4,15 +4,19 @@ import {writingQuestions, sourcePreview} from './questions.js';
 import {activityPane} from './activity.js';
 import {draftingPane} from './drafting-pane.js';
 import {disclosurePane} from './disclosure-pane.js';
+import {budgetPane} from './budget-pane.js';
 
 let activity = null;
 let writing = null;
 let disclosure = null;
+let budget = null;
 function retireDisclosure() { disclosure?.retire(); disclosure = null; }
+function retireBudget() { budget?.retire(); budget = null; }
 function retireActivity() {
   activity?.retire(); activity = null;
   writing?.retire(); writing = null;
   retireDisclosure();
+  retireBudget();
 }
 
 const $ = id => document.getElementById(id);
@@ -43,7 +47,7 @@ async function forgetWritingAfter(action) {
   const owner = state.owner;
   const result = await writingRecovery.forgetOwnerAfter(owner, action);
   // Privacy cleanup survives stale UI tickets, without touching another owner.
-  if (state.owner === owner) { writing?.retire(); writing = null; retireDisclosure(); }
+  if (state.owner === owner) { writing?.retire(); writing = null; retireDisclosure(); retireBudget(); }
   return result;
 }
 function context() {
@@ -344,6 +348,9 @@ async function inspectEvidence() {
 }
 function settings() {
   heading('Settings and privacy');
+  budget = budgetPane({api, owner: state.owner, edits,
+    onConfigurationChanged: () => disclosure?.invalidate(), notify});
+  $('main').append(budget.element);
   $('main').append(section('Writing preferences', form('Save explicit preferences', element => operation(() => api(workspace(), {method: 'PATCH', body: {expected_metadata_revision: revisions().metadata, writing_preferences: values(element).preferences}}), refreshAfter, element), field('preferences', 'Your preferred voice and writing style', {type: 'textarea', value: state.detail.profile.writing_preferences, maxLength: 10000}))));
   const consent = state.detail.consent;
   const purposes = ['research', 'drafting', 'assessment'];

@@ -116,6 +116,12 @@ context or a current saved local edit's exact assessment text, model, purpose st
 and conservative usage ceilings. It never sends to a cloud provider or queues work.
 Changing writing, selections or configuration clears the preview. Monetary cost
 remains unknown—not zero—and a preview is not key/consent/budget readiness.
+Settings also provides explicit profile-wide reservation-limit inspection and
+configuration. Enter all four limits and separately acknowledge them; refresh
+shows observed values without replacing inputs. These are not a money cap or
+cloud consent and can affect queued/running work. Saves are last-writer-wins.
+An unknown save outcome requires manual observation before a new update; refresh
+does not settle the earlier write or prevent another tab from changing limits.
 Cloud/research launch, paid drafting/reassessment, application review and browser
 actions are **not available in this preview**. Existing question text/order cannot yet be
 changed in its line editor: it refuses changes rather than reassigning IDs or

@@ -428,7 +428,7 @@ changing the selected data/configuration clears the preview. These are selected-
 disclosures, not exact future multi-stage request bytes: later generation calls
 also contain intermediate generated text. Applicable OpenAI-purpose permission is
 shown separately, not inferred from a preview. Preview success does not certify a
-key, budget admission or readiness to transmit. UI enqueue/acknowledgement controls
+key, budget admission or readiness to transmit. UI drafting-enqueue/acknowledgement controls
 remain unavailable in this bounded increment.
 
 Budget routes: `GET /api/workspace/profiles/{profile_id}/budget` reports
@@ -440,6 +440,16 @@ The units conservatively reserve input UTF-8 bytes plus output ceiling, not exac
 provider token usage. Preview upper bound is `5*(131072+max_output_tokens)` in those
 reservation-estimate units; monetary cost remains null/pricing unknown. Concurrent
 work and changed ceilings may cause later admission to fail.
+
+The workspace Settings pane explicitly refreshes and saves these limits with a
+separate unchecked acknowledgement. Configuration is last-writer-wins, not a
+revision-checked update. POST writes then reads back in a separate transaction;
+an error or mismatching readback cannot establish rollback. A later GET observes
+current configuration, not whether a prior request committed, failed or finished.
+The pane preserves editable inputs and newer/unrelated edits, requires manual
+refresh after an unknown save, and labels a later acknowledged save as a new
+update—not reconciliation. Limits can affect already queued/running work at
+subsequent reservation/send checks; no budget UI action queues or transmits work.
 
 Only a current, integrity-verified S4 batch can be used. The pipeline sends each
 target's selected confirmed-fact/employer excerpts and applicable selected-only
