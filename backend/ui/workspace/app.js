@@ -1,15 +1,21 @@
-import {createClient, EditBuffers, RequestGate, externalUrl, evidenceDeletionNotice} from './client.js';
+import {createClient, createTextClient, advanceApplicationOutput, WritingRecovery, EditBuffers, RequestGate, externalUrl, evidenceDeletionNotice} from './client.js';
 import {node, field, section, text, link} from './dom.js';
 import {writingQuestions, sourcePreview} from './questions.js';
 import {activityPane} from './activity.js';
+import {draftingPane} from './drafting-pane.js';
 
 let activity = null;
-function retireActivity() { activity?.retire(); activity = null; }
+let writing = null;
+function retireActivity() {
+  activity?.retire(); activity = null;
+  writing?.retire(); writing = null;
+}
 
 const $ = id => document.getElementById(id);
 const routes = ['overview', 'opportunities', 'interview', 'brain', 'evidence', 'applications', 'settings'];
 const gate = new RequestGate();
 const edits = new EditBuffers();
+const writingRecovery = new WritingRecovery();
 const state = {token: '', status: null, initialized: false, profiles: [], owner: '', detail: null, route: 'overview', busy: false, get dirty() { return edits.dirty; }, question: '', application: ''};
 const api = createClient({token: () => state.token});
 const workspace = (tail = '') => `/api/workspace/profiles/${encodeURIComponent(state.owner)}${tail}`;
@@ -21,6 +27,18 @@ function notify(message, error = false) {
   $('notice').textContent = message;
   $('notice').className = error ? 'error' : '';
 }
+function writingBlocksNavigation() {
+  if (!writing?.unresolved) return false;
+  notify('A writing save is pending or its outcome is unresolved. Resolve the exact saved edit in place before changing scope or reloading. Closing/reloading the page can lose the in-memory operation; no rollback is claimed.', true);
+  return true;
+}
+async function forgetWritingAfter(action) {
+  const owner = state.owner;
+  const result = await writingRecovery.forgetOwnerAfter(owner, action);
+  // Privacy cleanup survives stale UI tickets, without touching another owner.
+  if (state.owner === owner) { writing?.retire(); writing = null; }
+  return result;
+}
 function context() {
   retireActivity();
   gate.select(`${state.owner}:${state.route}:${state.application}`);
@@ -29,7 +47,7 @@ function context() {
 }
 function busy(value) {
   state.busy = value;
-  for (const control of document.querySelectorAll('[data-action-control]')) control.disabled = value;
+  for (const control of document.querySelectorAll('[data-action-control]')) control.disabled = value || control.dataset.writingLocked === 'true';
 }
 function button(label, action, className = '') {
   const result = node('button', label, className);
@@ -47,6 +65,7 @@ function form(label, submit, ...children) {
 function offerReload(message, error = false) {
   notify(message, error);
   $('notice').append(button('Reload selected data', () => {
+    if (writingBlocksNavigation()) return;
     if (state.dirty && !confirm('Discard unsaved edits and reload the current server revisions?')) return;
     context(); reloadWithMessage('Current revisions reloaded. Re-enter only the edits you want to keep.');
   }, 'secondary'));
@@ -108,7 +127,7 @@ function profileForm() {
 }
 function overview() {
   heading('Your application workspace');
-  $('main').append(section('Private, evidence-led preparation', text('This preview uses the Python data services. Static research inspection and durable job/usage inspection are available in application activity. Research launch, grounded drafting and supervised browser actions remain unavailable. Nothing is submitted for you.'), text('Each friend should run an independent local installation. Profile selection is not account authentication.', 'muted')));
+  $('main').append(section('Private, evidence-led preparation', text('This preview uses the Python data services. Inspect saved research, evidence packets, drafts and job/usage history; save immutable local writing edits and export saved text. Research launch, paid drafting/reassessment, human review and supervised browser actions are not wired here. Nothing is submitted for you.'), text('Each friend should run an independent local installation. Profile selection is not account authentication.', 'muted')));
   if (!state.detail) { $('main').append(section('Start with your own experience', profileForm())); return; }
   const detail = state.detail;
   $('main').append(section('Next steps', text(`${detail.interview_answers.length} interview answers · ${detail.proposals.filter(p => p.status === 'pending').length} pending proposals · ${detail.applications.length} applications`), text('Save a story, confirm only accurate canonical facts, and add the exact employer questions. You can skip onboarding or finish early.'), link('#interview', 'Continue interview'), text('Evidence and typed personal values are stored separately. Uploading, approving wording or recording an outcome does not confirm a new fact.', 'muted')));
@@ -163,7 +182,7 @@ async function brain() {
     } else entry.append(text(proposal.text));
     entry.append(button('Forget proposal and linked content', () => {
       if (!confirm('Forget this proposal, linked raw answer lineage and confirmed derivatives, and discard unsaved edits in this view? Unrelated saved facts remain; external backups are outside deletion.')) return;
-      operation(() => api(workspace(`/proposals/${proposal.id}`), {method: 'DELETE', body: {expected_metadata_revision: revisions().metadata, expected_facts_revision: revisions().facts}}), async result => { context(); await reloadWithMessage(result.cleanup_pending ? 'Access revoked; external cleanup remains pending.' : 'Linked local content forgotten.'); }, null, true);
+      operation(() => forgetWritingAfter(() => api(workspace(`/proposals/${proposal.id}`), {method: 'DELETE', body: {expected_metadata_revision: revisions().metadata, expected_facts_revision: revisions().facts}})), async result => { context(); await reloadWithMessage(result.cleanup_pending ? 'Access revoked; external cleanup remains pending.' : 'Linked local content forgotten.'); }, null, true);
     }, 'danger'));
     inbox.append(entry);
   }
@@ -179,6 +198,7 @@ async function brain() {
 }
 function applicationForm(application = null) {
   return form(application ? 'Save changed application inputs' : 'Add exact application', element => {
+    if (application && writingRecovery.has(application.profile_id, application.application_id)) return notify('This application is read-only for this page session. Its retained writing operation must not be replaced by input changes.', true);
     const data = values(element);
     let questions;
     try { questions = writingQuestions(data.questions, application?.questions, {max_words: data.max_words, max_chars: data.max_chars}); }
@@ -195,6 +215,7 @@ async function applications(create = false) {
   if (create) { $('main').append(section('Track a real tech or finance vacancy', applicationForm())); return; }
   const list = section('Your applications');
   for (const application of state.detail.applications) list.append(button(`${application.company} · ${application.role}`, () => {
+    if (writingBlocksNavigation()) return;
     if (state.dirty && !confirm('Discard unsaved edits and select another application?')) return;
     state.application = application.application_id; context(); loadSelected();
   }, 'secondary'));
@@ -202,22 +223,49 @@ async function applications(create = false) {
   $('main').append(list);
   const application = state.detail.applications.find(item => item.application_id === state.application);
   if (!application) return;
+  const inputForm = applicationForm(application), appForms = [inputForm], lockNotice = text('', 'warning');
+  const lockForms = () => {
+    if (!writingRecovery.has(application.profile_id, application.application_id)) return;
+    lockNotice.textContent = 'Read-only writing recovery: application inputs/history and new writing saves are locked for this page session. Inspect, export, reconcile the exact captured operation or explicitly delete this scope. No rollback is assumed.';
+    for (const form of appForms) for (const control of form.querySelectorAll('input,textarea,select,button')) {
+      control.dataset.writingLocked = 'true'; control.disabled = true;
+    }
+  };
+  lockForms();
   const url = externalUrl(application.vacancy_url);
-  $('main').append(section(`${application.company} · ${application.role}`, ...(url ? [link(url, 'Inspect the public vacancy')] : []), text('Static company research can be inspected below. Research launch, per-question packets, grounded drafting and exact-text assessment remain unavailable. No researched/assessed badge is implied.', 'warning'), applicationForm(application)));
+  $('main').append(section(`${application.company} · ${application.role}`, ...(url ? [link(url, 'Inspect the public vacancy')] : []), text('Inspect stored research, packets and drafts below; local edits create unassessed immutable revisions. Research launch and paid drafting/reassessment controls are not wired here. Human review, form filling and submission remain unavailable.', 'warning'), inputForm, lockNotice));
   activity = activityPane({api, owner: state.owner, application: application.application_id});
   $('main').append(activity.element);
+  writing = draftingPane({api, exportText: createTextClient({token: () => state.token}),
+    owner: state.owner, application: application.application_id, edits, notify,
+    recovery: writingRecovery.get(state.owner, application.application_id),
+    onHandoff: capsule => {
+      if (state.owner !== application.profile_id || state.application !== application.application_id) return false;
+      const retained = writingRecovery.retain(application.profile_id, application.application_id, capsule);
+      if (retained) lockForms();
+      return retained;
+    },
+    onPublished: published => {
+      if (state.owner === published.owner && state.application === published.application) advanceApplicationOutput(application, published);
+    }});
+  writing.element.classList.add('application-writing');
+  $('main').append(writing.element);
   const ticket = gate.capture('history');
   const data = await api(workspace(`/applications/${application.application_id}/history`));
   if (!gate.current(ticket)) return;
   const history = section('Feedback and user-reported outcomes', text('Recording an outcome is not a browser submission or an observed employer receipt. Feedback creates a pending memory proposal.'));
   for (const event of data.history) history.append(text(`${event.kind} · ${event.recorded_at}`, 'muted'), text(event.text));
-  history.append(form('Record local feedback', element => {
+  const feedbackForm = form('Record local feedback', element => {
+    if (writingRecovery.has(application.profile_id, application.application_id)) return notify('History writes are locked while this application has a retained writing recovery.', true);
     const data = values(element);
     operation(() => api(workspace(`/applications/${application.application_id}/history`), {method: 'POST', body: {expected_input_revision: application.input_revision, expected_output_revision: application.output_revision, event_id: crypto.randomUUID(), kind: data.kind, text: data.text}}), refreshAfter, element);
-  }, field('kind', 'Event kind', {options: [['feedback', 'Feedback'], ['user_reported_submitted', 'I report that I submitted manually']]}), field('text', 'Your own feedback or outcome statement', {type: 'textarea', required: true, maxLength: 20000})));
+  }, field('kind', 'Event kind', {options: [['feedback', 'Feedback'], ['user_reported_submitted', 'I report that I submitted manually']]}), field('text', 'Your own feedback or outcome statement', {type: 'textarea', required: true, maxLength: 20000}));
+  appForms.push(feedbackForm); lockForms(); history.append(feedbackForm);
   history.append(button('Delete application and linked feedback content', () => {
     if (!confirm('Delete this application, history and dependent confirmed feedback facts, and discard unsaved edits in this view? Independently confirmed unrelated saved facts remain.')) return;
-    operation(() => api(workspace(`/applications/${application.application_id}`), {method: 'DELETE', body: {expected_input_revision: application.input_revision, expected_output_revision: application.output_revision}}), async result => { state.application = ''; context(); await reloadWithMessage(result.cleanup_pending ? 'Application access revoked; external cleanup remains pending.' : 'Application deleted locally.'); }, null, true);
+    operation(() => forgetWritingAfter(() => api(workspace(`/applications/${application.application_id}`), {method: 'DELETE', body: {expected_input_revision: application.input_revision, expected_output_revision: application.output_revision}})), async result => {
+      state.application = ''; context(); await reloadWithMessage(result.cleanup_pending ? 'Application access revoked; external cleanup remains pending.' : 'Application deleted locally.');
+    }, null, true);
   }, 'danger'));
   $('main').append(history);
 }
@@ -245,7 +293,7 @@ async function inspectEvidence() {
       } catch (error) { if (gate.current(mark)) notify(error.message, true); }
     }, 'secondary'), button(`Delete ${source.filename}`, () => {
       if (!confirm('Delete the original source, revoke linked facts/proposals and discard unsaved file selections in this view? External backups and forensic traces are outside this operation.')) return;
-      operation(() => api(evidence(`/sources/${source.id}`), {method: 'DELETE', body: {}}), async result => { context(); await reloadWithMessage(evidenceDeletionNotice(result)); }, null, true);
+      operation(() => forgetWritingAfter(() => api(evidence(`/sources/${source.id}`), {method: 'DELETE', body: {}})), async result => { context(); await reloadWithMessage(evidenceDeletionNotice(result)); }, null, true);
     }, 'danger'), link(evidence(`/sources/${source.id}/original`), `Download original ${source.filename}`));
     selection.append(field('source_id', source.filename, {type: 'checkbox'}));
     selection.lastElementChild.querySelector('input').value = source.id;
@@ -295,7 +343,7 @@ function settings() {
   const typed = section('Personal values — separate from story evidence', text('Contact, identity, eligibility and declarations are never inferred. These values are not automatically authorized for transmission.'));
   for (const item of state.detail.typed_values) typed.append(text(`${item.kind} · ${item.field}: ${item.value}`), text(`Purpose: ${item.purpose} · ${item.application_id ? 'one application' : 'profile'} scope`, 'muted'), button('Delete this personal value', () => {
     if (!confirm('Delete this stored personal value and discard unsaved settings edits in this view?')) return;
-    operation(() => api(workspace(`/typed-values/${item.id}`), {method: 'DELETE', body: {expected_metadata_revision: revisions().metadata}}), async () => { context(); await refreshAfter(); }, null, true);
+    operation(() => forgetWritingAfter(() => api(workspace(`/typed-values/${item.id}`), {method: 'DELETE', body: {expected_metadata_revision: revisions().metadata}})), async () => { context(); await refreshAfter(); }, null, true);
   }, 'danger'));
   typed.append(form('Store explicitly confirmed personal value', element => {
     const data = values(element);
@@ -325,7 +373,7 @@ function settings() {
     const anchor = link(url, 'Download private export'); anchor.download = `copilot-profile-${state.owner}.json`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); notify('Private saved-state JSON export created. Unsaved browser edits are not exported. Store it securely.');
   }, null, true), 'secondary'), button('Delete selected profile and derived data', () => {
     if (!confirm('Revoke this profile, delete its app-held data and discard unsaved browser edits? Cleanup may remain pending; external copies and forensic traces are excluded.')) return;
-    operation(() => api(workspace(), {method: 'DELETE', body: {}}), async result => {
+    operation(() => forgetWritingAfter(() => api(workspace(), {method: 'DELETE', body: {}})), async result => {
       state.owner = ''; state.detail = null; state.application = ''; state.question = ''; localStorage.removeItem('copilot-python-profile'); context(); await reloadWithMessage(result.cleanup_pending ? 'Profile access revoked; external cleanup remains pending.' : 'Profile deleted locally.');
     }, null, true);
   }, 'danger')));
@@ -362,6 +410,7 @@ function navigate() {
   if (!state.initialized) return; // Keep latest hash; bootstrap owns its lifetime.
   const route = routes.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'overview';
   if (route === state.route) return;
+  if (writingBlocksNavigation()) { location.hash = state.route; return; }
   if (state.dirty && !confirm('Discard unsaved changes and change views?')) { location.hash = state.route; return; }
   state.route = route; context(); loadSelected();
 }
@@ -369,13 +418,14 @@ for (const route of routes) $('navigation').append(link(`#${route}`, route.charA
 document.querySelector('.skip').onclick = event => { event.preventDefault(); $('main').focus(); };
 $('profile').onchange = event => {
   if (!state.initialized) return;
+  if (writingBlocksNavigation()) { event.target.value = state.owner; return; }
   if (state.dirty && !confirm('Discard unsaved changes and switch profiles?')) { event.target.value = state.owner; return; }
   state.owner = event.target.value; state.detail = null; state.question = ''; state.application = '';
   if (state.owner) localStorage.setItem('copilot-python-profile', state.owner); else localStorage.removeItem('copilot-python-profile');
   context(); notify('Selected profile scope changed. Previous profile content cleared.'); loadSelected();
 };
 window.addEventListener('hashchange', navigate);
-window.addEventListener('beforeunload', event => { if (state.dirty) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('beforeunload', event => { if (state.dirty || writingRecovery.size) { event.preventDefault(); event.returnValue = ''; } });
 async function start() {
   const ticket = gate.capture('bootstrap');
   try {
@@ -389,7 +439,7 @@ async function start() {
     state.owner = list.profiles.some(profile => profile.profile_id === remembered) ? remembered : '';
     state.route = routes.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'overview';
     state.initialized = true; $('profile').disabled = false;
-    context(); await reloadWithMessage('Local data preview ready. Static research/job/usage inspection is available in application activity. Research launch, drafted answers and browser actions remain unavailable here.');
+    context(); await reloadWithMessage('Local preview ready. Inspect saved research, packets and writing; save local edits or export saved text. Paid launch/reassessment, human review and browser actions remain unavailable here.');
   } catch (error) {
     if (gate.current(ticket)) {
       notify(error.message, true);

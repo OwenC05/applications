@@ -2,7 +2,7 @@
 
 A private, local-first internship application workspace for **technology and finance**. Includes the preserved dependency-free Node.js MVP and a separate Python/FastAPI evidence workbench.
 
-**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python also has reviewed profile/interview/proposal/application data APIs, an explicit legacy importer and an isolated workspace preview. Durable workers handle indexing and bounded static company/role research with original-source inspection through the API. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. Python now connects stored per-question packets to consent-gated, durable 3/5-call drafting through API routes, with exact-text evidence assessment and blocked-output inspection. The integrated drafting UI, editing/reassessment/review workflow, semantic quality qualification and supervised browser filling/submission are still being built. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
+**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python also has reviewed profile/interview/proposal/application data APIs, an explicit legacy importer and an isolated workspace preview. Durable workers handle indexing and bounded static company/role research with original-source inspection through the API. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. Python now connects stored per-question packets to consent-gated, durable 3/5-call drafting through API routes, with exact-text evidence assessment and blocked-output inspection. The workspace adds saved packet/draft inspection, local immutable writing edits and saved-text export; paid launch/reassessment controls, human review, semantic quality qualification and supervised browser filling/submission remain unfinished. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
 
 ## Start
 
@@ -95,13 +95,35 @@ without confirmation.
 Application activity offers explicit job/status/cancellation refresh, profile-wide
 usage and stored static-research history/source inspection. Refreshing these panes
 preserves unsaved application inputs; historical completeness is not current
-eligibility, and stored hashes are not semantic support. Cloud/research launch,
-drafting, paid retry, application review and browser actions are **not available
-in this preview**. Existing question text/order cannot yet be
+eligibility, and stored hashes are not semantic support. A separate writing pane
+inspects saved evidence packets and drafts, saves local immutable unassessed edits
+and exports the selected saved revision—not unsaved browser writing. Lost or
+post-commit failed save responses retain the exact operation for explicit
+same-key reconciliation. Downloads are outside managed forgetting.
+Ordinary in-app navigation/reload is blocked while a writing save is pending or
+unresolved. Its captured operation is in memory only; hard page reload/close can
+lose it, requiring explicit saved-history/current-revision inspection. No rollback
+or automatic retry is assumed. Explicit privacy deletion remains available.
+For a permanent conflict, explicit read-only handoff retains the exact operation
+and newer writing in page memory, permits navigation and exact reconciliation
+on return, but locks new draft/input/history writes for that application for the
+page session. Successful application/profile deletion or source/proposal
+forgetting conservatively clears that owner's retained writing, including other
+applications that could contain deleted feedback facts.
+Hard reload/close loses this memory and is not reconciliation.
+Cloud/research launch, paid drafting/reassessment, application review and browser
+actions are **not available in this preview**. Existing question text/order cannot yet be
 changed in its line editor: it refuses changes rather than reassigning IDs or
 constraints. Saved-state JSON export is not a qualified full backup. Independent
-review and synthetic actual-browser flows cover this component, not full S6,
-accessibility or release qualification. The default evidence page and Node app
+review and synthetic actual-browser flows cover the data/activity and saved-writing
+components, not full S6. A real local API/SQLite/Chroma fixture exercised keyboard
+selection/save, newer typing during an in-flight save, focus/caret preservation,
+post-commit conflict recovery and exact saved-text downloads. Screenshots at
+375/768/1280px had no horizontal overflow; one automated accessibility scan found
+no violations. Browser runtime libraries were extracted only into an explicitly
+approved isolated tool cache, without project or system package changes. These
+bounded checks are not WCAG certification or release qualification. No paid cloud
+calls or employer actions were tested. The default evidence page and Node app
 are unchanged.
 
 ### Docker setup

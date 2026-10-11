@@ -1,7 +1,7 @@
 # Design
 
 ## Source of truth
-Status: Active. Date: 2026-10-08. Surfaces: preserved Node dashboard, Python evidence workbench, and the planned unified Python workspace preview. Evidence: existing public/ and backend/ui/ assets, API.md, and docs/plans/prd-researched-applications.md. Existing brand and tokens are retained. Preview implementation is not release qualification.
+Status: Active. Date: 2026-10-11. Surfaces: preserved Node dashboard, Python evidence workbench, and the unified Python workspace preview. Evidence: existing public/ and backend/ui/ assets, API.md, docs/plans/prd-researched-applications.md, and reviewed local drafting UI contract. Existing brand and tokens are retained. Preview implementation is not release qualification.
 
 ## Brand
 Application Copilot. Calm, capable, evidence-led; appropriate for both engineering and finance. Trust signals: explicit profile, verified/pending badges, source links, timestamps, real offline/error states. Avoid magic-brain claims, hiring-manager mind-reading, gamified pressure and mass-apply imagery.
@@ -66,7 +66,71 @@ character limits use code points, not UTF-16 indexes. Keyboard flows, hostile
 synthetic fixtures and 375/768/1280px screenshots are implementation gates,
 not evidence already supplied by this design document.
 
-### Bounded application-activity preview
+### Saved writing preview — S6-A
+
+Connect saved packet/question inspection, immutable local draft edits and saved-text
+export after the independent application activity pane. This increment does not
+launch paid generation/reassessment, approve human review, resolve manual fields,
+fill forms or submit. Full S6 and release gates remain separate.
+
+Create labelled selectors and explicit refresh controls once; preserve chosen IDs.
+Packet, draft, activity and history request slots retire independently. A save
+invalidates earlier detail/export reads, and accepted baseline adoption advances
+an editor generation even when the selected draft ID would otherwise be unchanged.
+Same-ID refresh must not replace dirty, saving, uncertain or conflicted writing.
+Only authoritative frozen writing_targets and publication hashes bind local edit
+requests. Empty configured cover letters remain targets; untouched Unicode and
+CRLF bytes are retained until actual input on that target.
+
+Show saved assessment, exact source IDs/excerpts and code-point ledger spans in
+separate previews; unsaved text never inherits old support highlights. Warning
+limits do not prevent local saving. Saved integrity/currentness is not semantic
+certainty, review approval or browser authority. Historical/blocked prose stays
+inspectable and exportable, never silently promoted to confirmed memory.
+
+Saving captures one immutable key/body and the exact form edit generation. Newer
+typing remains dirty and cannot be silently reparented. Only correlated scope,
+parent/request/target and output-only revision responses acknowledge that exact
+generation. Post-commit errors, including 409/5xx and malformed/lost responses,
+retain the operation: explicit reconciliation replays only the same key/body,
+never retries automatically or claims rollback. Downloads contain only the
+selected saved revision, use a fixed filename and are outside managed forgetting.
+While saving or unresolved, ordinary internal navigation/profile/application
+switching and explicit data reload are blocked; exact reconciliation remains in
+place. Explicit privacy deletion remains available and only a confirmed successful
+scope revocation may retire the operation. Failed deletion retains it. The
+captured operation is in memory only: beforeunload is a warning, not a hard-close
+guarantee. A hard reload/close loses it and requires explicit server-history and
+current-revision inspection, never automatic replay or an assumed rollback.
+A permanent stale-parent/lineage conflict must not trap the whole workspace:
+after a request settles uncertain, explicit read-only handoff retains defensive
+copies of the exact operation and effective unsaved target strings in a root
+owner/application-scoped memory map. Application inputs/history and new writing
+saves remain locked for the page session, including after remount and successful
+exact replay. Inspection/export/navigation/privacy deletion remain available;
+same-operation reconciliation is available on return with no inherited form
+acknowledgement ticket. The lock is never cleared by list absence or another 409.
+Successful application/profile deletion or source/proposal forgetting
+conservatively purges that owner's capsules (linked feedback facts can inform
+other applications). Failed deletion
+retains them. No localStorage, log or automatic download receives captured prose.
+Privacy success cleanup captures its owner before dispatch and runs independently
+of stale UI completion tickets. It also retires/clears active same-owner writing;
+another owner's visible pane and dirty forms are untouched. Read-only saved
+inspection/export selection remains separate from the retained recovery baseline.
+Retired/changed selections cannot trigger a download. Root applies accepted
+publication callbacks monotonically to the same application's output counter
+only; unrelated forms and input/profile revisions remain untouched.
+
+Actual browser checks on a synthetic local API/SQLite/Chroma fixture exercised
+keyboard selection/save, in-flight newer typing, focus/caret preservation,
+literal hostile-text rendering, exact saved-byte downloads and read-only
+post-commit conflict recovery. Screenshots at 375/768/1280px showed no horizontal
+overflow; a bounded axe scan reported no violations. This is not WCAG certification,
+cross-browser coverage, full S6 or release qualification. Controller/source unit
+tests remain separate evidence, not a substitute for those browser checks.
+
+### Bounded application-activity preview (earlier increment)
 
 The published job/status/cancel/usage and static-research inspection contracts
 may be connected before drafting. Add separate read-only activity containers
@@ -89,7 +153,7 @@ by this inspection increment. Unqualified capabilities stay unavailable.
 - [ ] Later browser autofill platform coverage; owner product; out of current milestone.
 - [ ] Later authenticated hosted product; owner product; no impact on local-first implementation.
 - [ ] Real user's provider credentials/model access; owner user at local setup; no effect on offline/test implementation, live verification remains conditional.
-- [ ] S2–S5 service envelopes and authoritative blocked reasons/editorial DTO; owner API/storage; freeze before consuming production UI controls.
+- [ ] Paid drafting/reassessment UI and exact human-review envelopes; owner API/storage; separate next increments, not authorized by local edit/export UI.
 - [ ] Docker, quality and independent friend/companion install evidence; owner delivery/verifier; preview must not imply qualified release.
 
 ## Python workspace integration — S0 contract boundary

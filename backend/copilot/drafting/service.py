@@ -397,9 +397,12 @@ class DraftingService:
                 if self._capture(db, owner, application_id, parameters.request, expected=False) != capture:
                     conflict('Draft source capture changed during inspection')
         return dict(schema_version=1, draft=draft.model_dump(mode='json'), publication=publication.model_dump(mode='json'),
+            publication_sha256=publication.publication_sha256,
             text_sha256=draft.text_sha256, ledger_sha256=draft.ledger_sha256, current=not reasons,
             reason_codes=tuple(dict.fromkeys(reasons + list(publication.reason_codes))),
             canonical_questions=[q.model_dump(mode='json') for q in batch.canonical_questions],
+            writing_targets=[dict(question=t.question.model_dump(mode='json'), packet_id=t.packet_id)
+                             for t in parameters.context.targets],
             manual_requirements=[m.model_dump(mode='json') for m in batch.manual_requirements],
             semantic_assessment='fallible_not_release_qualified', review_eligible=False, browser_eligible=False,
             capabilities=dict(generation=True, edit=True, reassess=True, review=False))

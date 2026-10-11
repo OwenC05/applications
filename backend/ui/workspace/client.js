@@ -26,6 +26,87 @@ export function createClient({fetchImpl = globalThis.fetch, token = () => ''} = 
   };
 }
 
+// Saved draft downloads have a narrower route and response contract than JSON IO.
+// No caller-supplied method, headers, redirect target or filename is accepted.
+export function createTextClient({fetchImpl = globalThis.fetch, token = () => ''} = {}) {
+  return async function exportText(path) {
+    const match = typeof path === 'string'
+      && /^\/api\/workspace\/profiles\/([^/?#\\]+)\/applications\/([^/?#\\]+)\/drafts\/([^/?#\\]+)\/export$/.exec(path);
+    let safe = Boolean(match);
+    if (match) {
+      try {
+        safe = match.slice(1).every(segment => {
+          const decoded = decodeURIComponent(segment);
+          return decoded !== '.' && decoded !== '..' && !/[\u0000-\u001f\u007f/%\\?#]/u.test(decoded);
+        });
+      } catch { safe = false; }
+    }
+    if (!safe) throw new Error('Only local scoped draft exports are supported.');
+    const response = await fetchImpl(path, {method: 'GET', mode: 'same-origin', redirect: 'error', cache: 'no-store',
+      headers: {'X-Evidence-Token': token()}});
+    const mime = (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+    if (!response.ok) {
+      let data;
+      if (mime === 'application/json') {
+        try { data = await response.json(); } catch { /* Never expose an arbitrary response body. */ }
+      }
+      const error = new Error(typeof data?.error?.message === 'string' ? data.error.message : 'The saved draft export failed.');
+      error.code = typeof data?.error?.code === 'string' ? data.error.code : 'UNAVAILABLE';
+      error.status = response.status;
+      throw error;
+    }
+    if (mime !== 'text/plain') throw new Error('The saved draft export did not return text/plain. No download is claimed.');
+    try { return await response.text(); }
+    catch { throw new Error('The saved draft export returned unreadable text. No download is claimed.'); }
+  };
+}
+
+// Preserve captured application form objects; only our own saved output advances.
+export function advanceApplicationOutput(application, published) {
+  if (!application || application.profile_id !== published?.owner || application.application_id !== published?.application
+    || typeof published.draftId !== 'string' || !published.draftId || typeof published.current !== 'boolean'
+    || !Number.isSafeInteger(application.output_revision) || application.output_revision < 0) return false;
+  const dimensions = ['metadata', 'facts', 'documents', 'consent', 'application_input', 'application_output', 'research'];
+  const pre = published.preRevisions, post = published.postRevisions;
+  const valid = vector => vector && vector.schema_version === 1 && Object.keys(vector).length === 8
+    && dimensions.every(key => Number.isSafeInteger(vector[key]) && vector[key] >= 0);
+  if (!valid(pre) || !valid(post) || !dimensions.every(key => post[key] === pre[key] + (key === 'application_output' ? 1 : 0))
+    || post.application_output <= application.output_revision) return false;
+  application.output_revision = post.application_output;
+  return true;
+}
+
+// Explicit UI quarantine only: no durable storage, success inference or unlock.
+export class WritingRecovery {
+  #capsules = new Map();
+  #key(owner, application) { return JSON.stringify([owner, application]); }
+  retain(owner, application, capsule) {
+    const operation = capsule?.operation, parent = operation?.parentCapture?.draft;
+    if (!owner || !application || parent?.profile_id !== owner || parent?.application_id !== application
+      || operation.parentDraftId !== parent.id || typeof operation.body?.idempotency_key !== 'string'
+      || !Array.isArray(capsule.targets) || !capsule.targets.every(t => typeof t?.target === 'string' && typeof t.text === 'string')) return false;
+    const key = this.#key(owner, application);
+    // A second handoff cannot replace the unresolved logical operation.
+    if (this.#capsules.has(key)) return false;
+    this.#capsules.set(key, structuredClone(capsule));
+    return true;
+  }
+  get(owner, application) {
+    const value = this.#capsules.get(this.#key(owner, application));
+    return value ? structuredClone(value) : null;
+  }
+  has(owner, application) { return this.#capsules.has(this.#key(owner, application)); }
+  forgetOwner(owner) {
+    for (const key of this.#capsules.keys()) if (JSON.parse(key)[0] === owner) this.#capsules.delete(key);
+  }
+  async forgetOwnerAfter(owner, action) {
+    const result = await action();
+    this.forgetOwner(owner);
+    return result;
+  }
+  get size() { return this.#capsules.size; }
+}
+
 // An owner/view epoch handles navigation; a slot sequence also handles races
 // between two source/citation/search selections within the same profile.
 export class RequestGate {
@@ -56,6 +137,7 @@ export class EditBuffers {
     return true;
   }
   get dirty() { return [...this.forms.values()].some(value => value.dirty); }
+  forget(form) { this.forms.delete(form); }
   clear() { this.forms.clear(); }
 }
 

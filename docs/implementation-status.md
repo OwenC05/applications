@@ -257,6 +257,29 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
 
 ## Qualification boundaries
 
+The S6-A writing increment connects saved packet/draft inspection, immutable
+local edits and saved-text export to the preview. It consumes authoritative
+frozen target/publication bindings, preserves unsaved text across unrelated
+refreshes, and retains uncertain saves for explicit exact-key reconciliation.
+Settled permanent conflicts can enter a scoped sticky read-only handoff with
+in-memory exact operation/newer text, remount reconciliation and privacy purging.
+List absence never proves non-commit; hard close/reload loses the capsule.
+Generation/reassessment launch, exact human review, manual-field resolution and
+browser actions are not wired. Actual headless Chrome with a synthetic local
+API/SQLite/Chroma fixture exercised keyboard selection/save, exact 251-byte saved
+UTF-8 downloads preserving CRLF rather than unsaved prose, newer typing during a
+real edit barrier, unchanged textarea/focus/caret during activity refresh, literal
+hostile-text rendering and a real post-commit 409 followed by read-only handoff,
+remount and exact-key reconciliation without duplicate publication. Input/history
+write guards rejected actual clicks while quarantined. Screenshots at
+375/768/1280px had no horizontal overflow; a bounded axe 4.12.1 WCAG2A/AA scan
+reported 22 passes, zero violations and zero incomplete checks, with no captured
+console/runtime errors. Missing NSPR/NSS/ALSA libraries were recovered from
+verified official packages into the explicitly approved isolated tool cache only;
+no system or project package changes, paid cloud calls or employer actions occurred.
+This evidence is not WCAG certification, cross-browser coverage, full S6 or release
+qualification. Controller/backend tests are separate evidence, not browser proof.
+
 The port-443 hostile-receiver test could not bind its privileged port on this
 host and remains skipped. An unprivileged rejected-URL receiver test observed
 zero connections; that and one successful public fetch do not establish the
@@ -271,7 +294,8 @@ application actions are authorized by implementation tests.
 
 The preserved Node app and Python evidence workbench remain runnable separately.
 Python API-only generation, immutable local edits and clean export are described
-above, together with one-call unchanged-text reassessment; exact human review,
-the unified drafting UI and browser automation remain unavailable pending their
-own integration and independent gates. Each
+above, together with one-call unchanged-text reassessment; saved writing UI
+inspection/edit/export is a bounded preview. Paid UI controls, exact human review
+and browser automation remain unavailable pending their own integration and
+independent gates. Each
 friend uses an independent local installation, not a hosted shared account.

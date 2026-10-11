@@ -450,6 +450,12 @@ Inspection currently always returns `review_eligible:false,browser_eligible:fals
 and capabilities `generation:true,edit:true,reassess:true,review:false`. Local
 edit/export and one-call reassessment routes are described below. There is
 **no runtime human-review endpoint** yet.
+Draft detail and each list item also return authoritative `publication_sha256`
+and `writing_targets:[{question,packet_id},...]` in original frozen generation
+order. The latter includes an explicitly configured cover-letter target even
+when its text is empty; `canonical_questions` alone does not include that separate
+target. Local editors must use these validated bindings and the saved full
+revision vector, not infer targets or calculate publication hashes in the browser.
 No reviewed/submit badge or browser grant is created. Source/
 fact forgetting removes derived prose and provider responses by owner/application
 scope, including orphan responses, while retaining uncertain usage accounting.
