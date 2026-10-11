@@ -12,6 +12,7 @@ from test_scoped_retrieval import runtime  # noqa: F401
 from copilot.contracts import EvidenceError
 from copilot.domain import contracts as c
 from copilot.domain.repository import ConsentInput
+from copilot.drafting.admission_contracts import AssessmentLaunch
 from copilot.drafting.assessment_contracts import AssessmentPreviewRequest, AssessmentRequest
 
 
@@ -39,13 +40,18 @@ def assessment_body(assessment, key='assessment'):
         disclosure_sha256=preview['disclosure_sha256'], acknowledged=True)
 
 
-def assess(assessment):
+def capture_assessment_launch(service, scope, request):
+    state = service.admission_state(scope.profile_id, scope.application_id)
+    return AssessmentLaunch(admission_revision=state['admission_revision'], request=request)
+
+
+def assess(assessment, *, launch=None):
     service, scope, parent, *_ = assessment
-    request = assessment_body(assessment)
-    job = service.enqueue_assessment(scope.profile_id, scope.application_id, parent.id, request)
+    launch = launch if launch is not None else capture_assessment_launch(service, scope, assessment_body(assessment))
+    job = service.enqueue_assessment(scope.profile_id, scope.application_id, parent.id, launch)
     worker = str(uuid4())
     lease = service.jobs.claim(worker, job_id=job.id)
-    return service.run_assess(job.id, worker, lease.fence), job, request
+    return service.run_assess(job.id, worker, lease.fence), job, launch.request
 
 
 @pytest.mark.parametrize('rewrite', [False, True])
@@ -53,7 +59,8 @@ def test_one_call_exact_unicode_fresh_ledger_no_rewrite(assessment, rewrite):
     service, scope, parent, sent, settings = assessment
     settings['rewrite'] = rewrite
     settings['unsupported'] = True
-    draft, job, body = assess(assessment)
+    launch = capture_assessment_launch(service, scope, assessment_body(assessment))
+    draft, job, body = assess(assessment, launch=launch)
     assert len(sent) == 4
     assert draft.answers == parent.answers and draft.cover_letter == parent.cover_letter
     assert draft.text_sha256 == parent.text_sha256
@@ -64,7 +71,7 @@ def test_one_call_exact_unicode_fresh_ledger_no_rewrite(assessment, rewrite):
     assert detail['publication']['edit_depth'] == 1
     assert 'CLAIM_UNSUPPORTED' in detail['reason_codes']
     assert not detail['review_eligible'] and not detail['browser_eligible']
-    assert service.enqueue_assessment(scope.profile_id, scope.application_id, parent.id, body).id == job.id
+    assert service.enqueue_assessment(scope.profile_id, scope.application_id, parent.id, launch).id == job.id
     assert len(sent) == 4
 
 
@@ -79,7 +86,7 @@ def test_preview_discloses_exact_text_no_key_or_send(assessment):
     assert preview['disclosure']['conservative_reservation_units'] == 131072 + body.max_output_tokens
     assert len(sent) == 3
     with pytest.raises(EvidenceError):
-        service.enqueue_assessment(scope.profile_id, scope.application_id, parent.id, body.model_copy(update={'model': 'other'}))
+        service.enqueue_assessment(scope.profile_id, scope.application_id, parent.id, capture_assessment_launch(service, scope, body.model_copy(update={'model': 'other'})))
 
 
 @pytest.mark.parametrize('change', [dict(acknowledged=1),dict(max_output_tokens=True),dict(expected_revisions={'facts':0}),dict(batch_id=None),dict(model='https://bad'),dict(context={})])
@@ -139,7 +146,7 @@ def test_completed_reuse_checks_retained_authority_before_publication(assessment
     from datetime import timedelta
     service, scope, parent, sent, _ = assessment
     body = assessment_body(assessment)
-    job = service.enqueue_assessment(scope.profile_id, scope.application_id, parent.id, body)
+    job = service.enqueue_assessment(scope.profile_id, scope.application_id, parent.id, capture_assessment_launch(service, scope, body))
     worker = str(uuid4())
     lease = service.jobs.claim(worker, job_id=job.id)
     commit = service.jobs.commit_stage
@@ -165,8 +172,8 @@ def test_completed_reuse_checks_retained_authority_before_publication(assessment
             db.execute('UPDATE provider_attempts SET data=? WHERE job_id=?', (json.dumps(raw), job.id))
     monkeypatch.setattr(service.jobs, 'commit_stage', commit)
     worker2 = str(uuid4())
-    reclaimed = service.jobs.claim(worker2, job_id=job.id)
     with pytest.raises(EvidenceError):
+        reclaimed = service.jobs.claim(worker2, job_id=job.id)
         service.run_assess(job.id, worker2, reclaimed.fence)
     assert len(sent) == 4
     assert service.domain.application(scope.profile_id, scope.application_id).output_revision == parent.revisions.application_output

@@ -4,10 +4,13 @@ A private, local-first internship application workspace for **technology and fin
 
 **Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python also has reviewed profile/interview/proposal/application data APIs, an explicit legacy importer and an isolated workspace preview. Durable workers handle indexing and bounded static company/role research with original-source inspection through the API. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. Python now connects stored per-question packets to consent-gated, durable 3/5-call drafting through API routes, with exact-text evidence assessment and blocked-output inspection. The workspace adds saved packet/draft inspection, local immutable writing edits and saved-text export; paid launch/reassessment controls, human review, semantic quality qualification and supervised browser filling/submission remain unfinished. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
 
-Durable drafting-admission groundwork is currently **dormant**. Its strict launch
-captures and SQLite primitives do not yet change API/worker behavior or prevent
-competing paid launches. Paid workspace launch remains unavailable until all
-insertion, retry, privacy and dispatch paths enforce the fence together.
+Generation and reassessment API enqueue require an explicit captured drafting
+admission revision as well as the unchanged request/disclosure. A durable consumed
+counter prevents distinct-key admissions from the same capture, including after
+restart or terminal failure. Generic paid insertion/retry and worker dispatch are
+fenced together; exact retained legacy requests are read-only compatibility paths.
+Stop all old API/worker processes before upgrading. Paid workspace launch controls
+remain unavailable; this fence is not provider compatibility or release qualification.
 
 ## Start
 

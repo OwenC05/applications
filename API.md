@@ -246,7 +246,9 @@ or Chroma merely to enqueue, read or cancel a job.
 
 Warned retry is currently **queue-only**, not an enabled paid handler. The worker
 rejects retry-lineage jobs with `HANDLER_UNAVAILABLE` before static research can
-run. Only an owned indeterminate research/draft/assessment attempt is eligible;
+run. Only an owned indeterminate research attempt can create a fresh warned retry;
+fresh draft/assessment retry requests return `ADMISSION_REQUIRED` (409). Strictly
+associated existing legacy drafting retries support read-only exact replay only;
 the server copies its original parameters and captured inputs, rather than
 accepting a new client payload or rebasing stale inputs. Current purpose consent,
 unchanged dependencies and configured daily and retry-family limits are required.
@@ -410,9 +412,37 @@ Base: `/api/workspace/profiles/{profile_id}/applications/{application_id}/drafts
 |---|---|
 | `GET /api/workspace/profiles/{profile_id}/applications/{application_id}/drafting-state` | Read-only `{schema_version:1,profile_id,application_id,current_revisions,consent}`. One validated snapshot supplies all seven current counters and a minimal provider/purpose/granted/revision consent summary or null. Not a permission token; no key lookup, model initialization, job creation or budget enabling. |
 | `POST .../preview` | Exact `batch_id,batch_sha256,expected_revisions,model,max_output_tokens` (1–8,000; default 2,000). Returns exact selected-context disclosure/hash, at-most-five-call conservative reservation bound, configured limits and unknown monetary status. No key lookup, provider send or budget enabling. |
-| `POST ...` | Same fields plus `idempotency_key,disclosure_sha256,acknowledged:true`; returns 202 `{schema_version:1,job:...}`. Exact replay precedes currentness checks; changed requests conflict. Whole five-call conservative budget headroom is required. |
+| `POST ...` | `{schema_version:1,admission_revision,request:{...preview fields,idempotency_key,disclosure_sha256,acknowledged:true}}`; returns 202 `{schema_version:1,job:...}`. Capture admission once and retain this exact wrapper for replay. Whole five-call conservative budget headroom remains required. |
 | `GET ...` | `{schema_version:1,drafts:[inspection...]}`. No model/provider initialization. |
 | `GET .../{draft_id}` | Immutable text, ledger, publication, full canonical questions/manual requirements, currentness and reason codes. Intact stale history remains inspectable; corrupt associations fail closed. |
+
+`GET /api/workspace/profiles/{profile_id}/applications/{application_id}/drafting-admission`
+returns exactly `{schema_version:1,profile_id,application_id,admission_revision,
+eligible,reason_codes,head_job}`. `head_job` is null or an associated admitted
+`{schema_version:1,id,kind,state,captured_revision,consumed_revision}`. Reasons are
+ordered `integrity_blocked`, `provider_outcome_unresolved`, `active_operation`,
+`admission_exhausted`; eligibility means only admission-history eligibility, not
+content, consent, budget, key or permission to spend. Null is not proof of absent
+history, and matching kind/revision cannot correlate an unknown lost request.
+The GET uses one read snapshot without initializing models or writing state.
+Wrong/deleted scope is 404; invalid UUID is 422; unavailable schema/head/binding
+metadata is 503. Valid metadata with unsafe history returns 200 and ineligibility.
+
+Fresh generation/assessment requires a strict version-1 launch wrapper. Wrappers
+bind a separate safe-integer admission revision, not an extra content-vector field.
+Different keys cannot reuse a consumed capture, even after terminal failure or
+restart. Exact admitted wrapper replay precedes currentness/history checks but
+still validates live scope, metadata and original association. Changed body,
+revision, scope or parent with the same key conflicts. A raw inner request supports
+only verified legacy read-only replay: fresh/raw admitted requests return
+`ADMISSION_REQUIRED` (409); wrappers cannot replay legacy jobs. Malformed wrappers
+never downgrade into raw requests. Retain the original wrapper after a missing or
+500 response; observation is not rollback proof and must not silently rebase it.
+Fresh admission checks canonical current granted drafting/assessment-purpose
+consent both before source verification and again inside the admission writer.
+Exact historical replay precedes these fresh-operation checks and does not grant
+a new dispatch. Generic paid insertion and fresh drafting warned-retry paths cannot
+bypass this contract. Stop all old API and worker processes before upgrade.
 
 `expected_revisions` must explicitly contain all seven dimensions: `metadata`,
 `facts`, `documents`, `consent`, `application_input`, `application_output`,
@@ -547,8 +577,10 @@ maximum one call and `131072+max_output_tokens` conservative reservation units.
 These are input-byte/output-ceiling estimates, not exact tokens or monetary cost.
 Preview does not read a key or enable cloud/budgets.
 
-`POST .../assessment` adds `idempotency_key,disclosure_sha256,acknowledged:true`
-and returns 202 job envelope. The worker requires current **assessment-purpose**
+`POST .../assessment` accepts `{schema_version:1,admission_revision,request}`,
+where `request` adds `idempotency_key,disclosure_sha256,acknowledged:true` to the
+preview fields, and returns the 202 job envelope. Retain this once-captured wrapper
+for exact replay; the endpoint's exact parent is also bound by its envelope hash. The worker requires current **assessment-purpose**
 consent, key, one-call budget headroom and unchanged canonical/original evidence.
 Exact retained-job replay precedes currentness but validates full captured scope,
 request and parent association—not merely a matching key digest. Changed requests

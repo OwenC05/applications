@@ -173,6 +173,16 @@ class DomainRepository:
         existing = db.execute('SELECT owner,kind FROM records WHERE id=?', (key,)).fetchone()
         if existing and existing != (owner, 'workspace:' + kind):
             fail('CONFLICT', 'Record identifier already exists', 409)
+        if kind == 'application':
+            from .. import admission_state
+            if (not isinstance(record, c.ApplicationRecord)
+                    or (record.profile_id, record.application_id) != (owner, key)):
+                fail('CONFLICT', 'Application record scope is inconsistent', 409)
+            if not existing:
+                admission_state.register_new_application(db, record)
+                return
+            # An update must never repair/reseed a missing admission head.
+            admission_state.read_head(db, owner, key)
         db.execute('INSERT INTO records VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',
                    (key, owner, 'workspace:' + kind, serialized))
 
@@ -344,6 +354,8 @@ class DomainRepository:
             for fact_id in related:
                 self.store._delete(owner, fact_id=fact_id, transaction=db)
             if not related:
+                from .. import admission_state
+                admission_state.invalidate_scope(db, owner)
                 self.store.forget_proposal_origin(db, owner, proposal.model_dump(mode='json'))
             db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)', (proposal_id, owner, 'workspace:proposal'))
             db.execute('DELETE FROM records WHERE id=? AND owner=?', (proposal_id, owner))

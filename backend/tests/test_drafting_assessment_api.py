@@ -45,6 +45,13 @@ def api_for(service, tmp_path):
     return api
 
 
+def launch_payload(service, scope, body):
+    # Capture once, including for malformed-body HTTP tests; never recapture on
+    # exact replay after admission or publication changes the current head.
+    return dict(schema_version=1, admission_revision=service.admission_state(
+        scope.profile_id, scope.application_id)['admission_revision'], request=body)
+
+
 def test_http_assessment_preview_queue_actual_worker_and_immutable_export(drafting, tmp_path):  # noqa: F811
     service, scope, _, sent, settings = drafting
     edited, request = setup_edit(drafting)
@@ -61,6 +68,7 @@ def test_http_assessment_preview_queue_actual_worker_and_immutable_export(drafti
         assert json.dumps(edited.answers[0].text, ensure_ascii=False) in json.dumps(disclosure, ensure_ascii=False)
         body = dict(request, idempotency_key='http-assess', acknowledged=True,
                     disclosure_sha256=preview.json()['disclosure_sha256'])
+        body = launch_payload(service, scope, body)
         queued = client.post(url, json=body)
         assert queued.status_code == 202, queued.text
         job = queued.json()['job']
@@ -110,7 +118,7 @@ def test_http_assessment_bad_body_or_disclosure_never_queues(drafting, tmp_path,
         else:
             body['disclosure_sha256'] = '0' * 64
             expected = 409
-        response = client.post(url, json=body)
+        response = client.post(url, json=launch_payload(service, scope, body))
         assert response.status_code == expected, response.text
     with service.store._read() as db:
         assert not db.execute("SELECT 1 FROM jobs WHERE json_extract(data,'$.kind')='assess'").fetchone()
@@ -155,6 +163,8 @@ def test_http_assessment_capture_offloaded_and_health_responsive(drafting, tmp_p
             base = f'/api/workspace/profiles/{scope.profile_id}/applications/{scope.application_id}/drafts/{edited.id}/assessment'
             payload = request if operation == 'preview' else dict(request,
                 idempotency_key='thread-test', acknowledged=True, disclosure_sha256='0' * 64)
+            if operation != 'preview':
+                payload = launch_payload(service, scope, payload)
             pending = asyncio.create_task(client.post(base + ('/preview' if operation == 'preview' else ''), json=payload))
             try:
                 assert await asyncio.to_thread(entered.wait, 2)

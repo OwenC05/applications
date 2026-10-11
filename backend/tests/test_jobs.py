@@ -108,7 +108,7 @@ def test_cancel_and_profile_tombstone_block_staging(setup):
 def test_application_output_guard_captured_server_side(setup):
     store, owner, jobs, _ = setup
     application = app(setup)
-    jobs.enqueue(owner, 'draft', {}, 'one', application)
+    jobs.enqueue(owner, 'research', {}, 'one', application)
     leased = jobs.claim(str(uuid4()))
     with store._tx() as db:
         raw = store._record(db, owner, application, 'workspace:application')
@@ -132,7 +132,7 @@ def test_five_reclaims_bound_unpaid_restart(setup):
 def test_final_publication_and_terminal_transition_are_atomic(setup):
     store, owner, jobs, _ = setup
     application = app(setup)
-    queued = jobs.enqueue(owner, 'draft', {}, 'terminal', application)
+    queued = jobs.enqueue(owner, 'research', {}, 'terminal', application)
     leased = jobs.claim(str(uuid4()))
     def publish(db, _job, _result):
         raw = store._record(db, owner, application, 'workspace:application')
@@ -148,7 +148,7 @@ def test_final_publication_and_terminal_transition_are_atomic(setup):
 def test_publication_callback_failure_rolls_back_counter_and_stage(setup):
     store, owner, jobs, _ = setup
     application = app(setup)
-    jobs.enqueue(owner, 'draft', {}, 'terminal', application)
+    jobs.enqueue(owner, 'research', {}, 'terminal', application)
     leased = jobs.claim(str(uuid4()))
     def publish(db, _job, _result):
         raw = store._record(db, owner, application, 'workspace:application')
@@ -166,7 +166,7 @@ def test_publication_callback_failure_rolls_back_counter_and_stage(setup):
 def test_deleted_application_does_not_starve_other_queued_owner(setup):
     store, owner, jobs, _ = setup
     application = app(setup)
-    stale = jobs.enqueue(owner, 'draft', {}, 'stale', application)
+    stale = jobs.enqueue(owner, 'research', {}, 'stale', application)
     with store._tx() as db:
         db.execute('DELETE FROM records WHERE id=?', (application,))
     other = store.create_profile('Other', ['finance']).id
@@ -179,7 +179,7 @@ def test_deleted_application_does_not_starve_other_queued_owner(setup):
 def test_nonterminal_dependency_changing_callback_is_rejected_and_rolled_back(setup):
     store, owner, jobs, _ = setup
     application = app(setup)
-    jobs.enqueue(owner, 'draft', {}, 'one', application)
+    jobs.enqueue(owner, 'research', {}, 'one', application)
     leased = jobs.claim(str(uuid4()))
     def publish(db, _job, _result):
         db.execute('INSERT INTO app_revisions VALUES(?,?,?)', (owner, application, 1))

@@ -15,7 +15,6 @@ from .runtime_contracts import (
     DraftParameters,
     DraftPreviewRequest,
     DraftPublication,
-    DraftRequest,
     draft_request_hash,
 )
 from .schemas import PlanOutput
@@ -121,45 +120,13 @@ class DraftingService:
         return dict(schema_version=1, disclosure=disclosure, disclosure_sha256=c.canonical_hash(disclosure),
                     review_eligible=False, browser_eligible=False)
 
+    def admission_state(self, owner, application_id):
+        from .admission_runtime import DraftAdmission
+        return DraftAdmission(self).state(owner, application_id)
+
     def enqueue(self, owner, application_id, request):
-        request = DraftRequest.model_validate_json(request.model_dump_json())
-        digest = draft_request_hash(owner, application_id, request)
-        # Exact replay intentionally precedes source/currentness/disclosure checks.
-        with self.store._read() as db:
-            old = db.execute('SELECT job_id,request_sha256 FROM job_keys WHERE owner=? AND key=?', (owner, request.idempotency_key)).fetchone()
-            if old:
-                if old[1] != digest:
-                    conflict('Idempotency key belongs to a different request')
-                return self.jobs._job(db, old[0], owner)[0]
-        preview_request = DraftPreviewRequest.model_validate_json(request.model_dump_json(exclude={'idempotency_key', 'disclosure_sha256', 'acknowledged'}))
-        preview = self.preview(owner, application_id, preview_request)
-        if preview['disclosure_sha256'] != request.disclosure_sha256:
-            conflict('Exact drafting disclosure acknowledgement required')
-        with self.store._tx() as db:
-            old = db.execute('SELECT job_id,request_sha256 FROM job_keys WHERE owner=? AND key=?', (owner, request.idempotency_key)).fetchone()
-            if old:
-                if old[1] != digest:
-                    conflict('Idempotency key belongs to a different request')
-                return self.jobs._job(db, old[0], owner)[0]
-            capture = self._capture(db, owner, application_id, request)
-            disclosure = self._disclosure(db, capture, request)
-            if c.canonical_hash(disclosure) != request.disclosure_sha256:
-                conflict('Draft disclosure changed')
-            limits = disclosure['configured_limits']
-            if not limits:
-                raise EvidenceError('BUDGET_REQUIRED', 'Configure explicit drafting reservation limits', 403)
-            bound = disclosure['conservative_reservation_units']
-            day = self.jobs._now().date().isoformat()
-            rows = db.execute("SELECT data FROM provider_attempts WHERE owner=? AND day=? AND state!='definitely_unsent'", (owner, day)).fetchall()
-            attempts = [c.ProviderAttempt.model_validate_json(row[0]) for row in rows]
-            if (limits['job_tokens'] < bound or limits['job_calls'] < 5
-                    or limits['daily_tokens'] < bound + sum(max(a.reserved_tokens, a.reported_tokens or 0) for a in attempts)
-                    or limits['daily_calls'] < 5 + len(attempts)):
-                raise EvidenceError('BUDGET_EXCEEDED', 'Configured headroom must cover conservative five-call bound', 403)
-            parameters = DraftParameters(profile_id=owner, application_id=application_id, request=request, request_sha256=digest,
-                context=build_context(capture[0], capture[2]), disclosure=disclosure)
-            return self.jobs.enqueue(owner, 'draft', parameters.model_dump(mode='json'), request.idempotency_key,
-                                     application_id, transaction=db, request_hash=digest)
+        from .admission_runtime import DraftAdmission
+        return DraftAdmission(self).enqueue_generation(owner, application_id, request)
 
     def _save_new(self, db, owner, kind, record):
         if db.execute('SELECT 1 FROM tombstones WHERE id=?', (record.id,)).fetchone() or db.execute('SELECT 1 FROM records WHERE id=?', (record.id,)).fetchone():
@@ -307,7 +274,9 @@ class DraftingService:
         draft = self.domain._get(db, owner, draft_id, 'draft', c.DraftRevision)
         if (draft.id, draft.profile_id, draft.application_id) != (draft_id, owner, application_id):
             raise EvidenceError('NOT_FOUND', 'Draft not found', 404)
-        rows = db.execute("SELECT id,data FROM records WHERE owner=? AND kind='workspace:draft_dependency' AND json_extract(data,'$.draft_id')=?", (owner, draft_id)).fetchall()
+        rows = [(identifier, data) for identifier, data in db.execute(
+            "SELECT id,data FROM records WHERE owner=? AND kind='workspace:draft_dependency'", (owner,))
+            if isinstance(json.loads(data), dict) and json.loads(data).get('draft_id') == draft_id]
         if len(rows) != 1:
             conflict('Draft publication association unavailable')
         raw = json.loads(rows[0][1])
@@ -337,7 +306,9 @@ class DraftingService:
         draft = self.domain._get(db, owner, draft_id, 'draft', c.DraftRevision)
         if (draft.id, draft.profile_id, draft.application_id) != (draft_id, owner, application_id):
             raise EvidenceError('NOT_FOUND', 'Draft not found', 404)
-        rows = db.execute("SELECT id,data FROM records WHERE owner=? AND kind='workspace:draft_dependency' AND json_extract(data,'$.draft_id')=?", (owner, draft_id)).fetchall()
+        rows = [(identifier, data) for identifier, data in db.execute(
+            "SELECT id,data FROM records WHERE owner=? AND kind='workspace:draft_dependency'", (owner,))
+            if isinstance(json.loads(data), dict) and json.loads(data).get('draft_id') == draft_id]
         if len(rows) != 1:
             conflict('Draft publication association unavailable')
         publication = DraftPublication.model_validate_json(rows[0][1])

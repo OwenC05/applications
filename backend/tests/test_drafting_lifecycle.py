@@ -26,12 +26,14 @@ def lease(drafting):  # noqa: F811
 @pytest.mark.parametrize('condition', ['key', 'consent'])
 def test_missing_key_or_consent_zero_transmitted_bodies(drafting, condition):  # noqa: F811
     service, scope, _, sent, _ = drafting
+    # Exercise the worker boundary after a genuine consented admission/lease;
+    # fresh admission without drafting consent is rejected separately.
+    job, worker, fence, _ = lease(drafting)
     if condition == 'key':
         service.provider._key_supplier = lambda: ''
     else:
         service.domain.consent(scope.profile_id, ConsentInput(expected_consent_revision=1,
             provider='openai', purposes=('research',), granted=True))
-    job, worker, fence, _ = lease(drafting)
     with pytest.raises(EvidenceError):
         service.run_draft(job.id, worker, fence)
     assert not sent
@@ -209,12 +211,12 @@ def test_legacy_same_owner_wrong_link_keeps_unknown_scope_and_rolls_back_app_for
     second_app = jobs.domain.create_application(owner, ApplicationInput(
         expected_metadata_revision=revision, company='B', role='Engineer', sector='tech',
         vacancy_url='https://b.example.test/job'))
-    first = jobs.enqueue(owner, 'draft', {}, 'private-legacy-A-canary', first_app.application_id)
-    second = jobs.enqueue(owner, 'draft', {}, 'private-legacy-B-canary', second_app.application_id)
+    first = jobs.enqueue(owner, 'research', {}, 'private-legacy-A-canary', first_app.application_id)
+    second = jobs.enqueue(owner, 'research', {}, 'private-legacy-B-canary', second_app.application_id)
     with store._tx() as db:
         rows = db.execute('SELECT owner,key,job_id,request_sha256 FROM job_keys').fetchall()
         db.execute('DROP TABLE job_keys')
-        db.execute('CREATE TABLE job_keys(owner TEXT,key TEXT,job_id TEXT,request_sha256 TEXT,PRIMARY KEY(owner,key))')
+        db.execute('CREATE TABLE job_keys(owner TEXT NOT NULL,key TEXT NOT NULL,job_id TEXT NOT NULL,request_sha256 TEXT NOT NULL,PRIMARY KEY(owner,key))')
         db.executemany('INSERT INTO job_keys VALUES(?,?,?,?)', rows)
         # Retained same-owner B is not proof that A's plaintext key belongs to B.
         db.execute('UPDATE job_keys SET job_id=? WHERE owner=? AND key=?',
@@ -224,7 +226,7 @@ def test_legacy_same_owner_wrong_link_keeps_unknown_scope_and_rolls_back_app_for
         assert db.execute('SELECT application_id,kind FROM job_keys WHERE owner=? AND key=?',
                           (owner, first.idempotency_key)).fetchone() == (None, None)
         assert db.execute('SELECT application_id,kind FROM job_keys WHERE owner=? AND key=?',
-                          (owner, second.idempotency_key)).fetchone() == (second_app.application_id, 'draft')
+                          (owner, second.idempotency_key)).fetchone() == (second_app.application_id, 'research')
         before = tuple(db.execute('SELECT * FROM records ORDER BY id').fetchall())
         jobs_before = tuple(db.execute('SELECT * FROM jobs ORDER BY id').fetchall())
         keys_before = tuple(db.execute('SELECT * FROM job_keys ORDER BY key').fetchall())

@@ -1,4 +1,5 @@
 """Quote-only evidence API, separate from the legacy application workflow."""
+import json
 import secrets
 import threading
 from dataclasses import asdict
@@ -16,6 +17,7 @@ from .config import Settings
 from .contracts import Citation, EvidenceError, Span
 from .documents import ingest
 from .domain.contracts import Contract, Revision, canonical_hash
+from .drafting.admission_contracts import AssessmentLaunch, DraftLaunch
 from .drafting.assessment_contracts import AssessmentPreviewRequest, AssessmentRequest
 from .drafting.edit_contracts import EditRequest
 from .drafting.runtime_contracts import DraftPreviewRequest, DraftRequest
@@ -269,6 +271,21 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
         # Strict models intentionally use JSON validation for tuple/time wire types.
         return model.model_validate_json(await request.body())
 
+    async def workspace_launch_input(request, wrapper, legacy):
+        if request.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'application/json':
+            raise EvidenceError('INVALID_INPUT', 'Workspace mutations require application/json', 415)
+        payload = await request.body()
+        try:
+            value = json.loads(payload)
+        except (ValueError, UnicodeError):
+            raise EvidenceError('INVALID_INPUT', 'Check the supplied fields.', 422) from None
+        if type(value) is not dict:
+            raise EvidenceError('INVALID_INPUT', 'Check the supplied fields.', 422)
+        # Select a closed schema once. A malformed capture must not downgrade
+        # into a raw historical request, nor lose extra/missing fields.
+        model = wrapper if {'request', 'admission_revision'} & value.keys() else legacy
+        return model.model_validate_json(payload)
+
     def job_summary(job):
         fields = ('id', 'profile_id', 'application_id', 'kind', 'state', 'stage', 'revisions',
                   'fence', 'attempt_count', 'cancellation_requested', 'heartbeat_at', 'lease_expires_at')
@@ -360,6 +377,10 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
     def workspace_drafting_state(profile_id: str, application_id: str):
         return drafting.current_state(profile_id, application_id)
 
+    @app.get('/api/workspace/profiles/{profile_id}/applications/{application_id}/drafting-admission')
+    def workspace_drafting_admission(profile_id: str, application_id: str):
+        return drafting.admission_state(profile_id, application_id)
+
     draft_base = '/api/workspace/profiles/{profile_id}/applications/{application_id}/drafts'
 
     @app.post(draft_base + '/preview')
@@ -369,7 +390,7 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
 
     @app.post(draft_base, status_code=202)
     async def workspace_draft_enqueue(profile_id: str, application_id: str, request: Request):
-        body = await workspace_input(request, DraftRequest)
+        body = await workspace_launch_input(request, DraftLaunch, DraftRequest)
         job = await run_in_threadpool(drafting.enqueue, profile_id, application_id, body)
         return {'schema_version': 1, 'job': job_summary(job)}
 
@@ -399,7 +420,7 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
 
     @app.post(draft_base + '/{draft_id}/assessment', status_code=202)
     async def workspace_assessment_enqueue(profile_id: str, application_id: str, draft_id: str, request: Request):
-        body = await workspace_input(request, AssessmentRequest)
+        body = await workspace_launch_input(request, AssessmentLaunch, AssessmentRequest)
         job = await run_in_threadpool(drafting.enqueue_assessment, profile_id, application_id, draft_id, body)
         return {'schema_version': 1, 'job': job_summary(job)}
 

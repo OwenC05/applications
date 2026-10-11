@@ -4,6 +4,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
+from admission_legacy_helpers import preupgrade_copy
 from test_drafting_service import drafting, execute  # noqa: F401
 from test_packet_service import packets  # noqa: F401
 from test_scoped_retrieval import runtime  # noqa: F401
@@ -14,6 +15,7 @@ from copilot.domain.repository import ApplicationInput, ApplicationPatch
 from copilot.drafting.edit_contracts import EditRequest
 from copilot.drafting.schemas import DraftOutput
 from copilot.drafting.service import DraftingService
+from copilot.store import Store
 
 
 def edit_request(service, scope, parent, key='edit', text='  Edited Café\n\n'):
@@ -219,13 +221,44 @@ def test_other_owner_or_application_cannot_read_or_edit_child(drafting, scope_ch
 
 
 @pytest.mark.parametrize('forget', ['application', 'profile'])
-def test_forget_erases_orphan_edit_text_without_parent_or_jobs(drafting, forget):  # noqa: F811
+def test_forget_erases_orphan_edit_text_without_parent_or_jobs(drafting, forget, tmp_path):  # noqa: F811
     service, scope, *_ = drafting
     parent, *_ = execute(drafting)
     child = edit(service, scope, parent)
-    with service.store._tx() as db:
+    original = service
+    target = tmp_path / 'owned-orphan-edit-preupgrade'
+    with preupgrade_copy(original.store, target) as db:
+        orphan_keys = db.execute('SELECT owner,key,job_id,request_sha256,application_id,kind FROM job_keys WHERE job_id IN (SELECT id FROM jobs WHERE owner=?) ORDER BY owner,key', (scope.profile_id,)).fetchall()
+        preserved_keys = db.execute('SELECT owner,key,job_id,request_sha256,application_id,kind FROM job_keys WHERE job_id NOT IN (SELECT id FROM jobs WHERE owner=?) ORDER BY owner,key', (scope.profile_id,)).fetchall()
+        assert orphan_keys
+        # Bootstrap requires intact keys. Stage only keys for the jobs removed
+        # below, then inject their exact orphan rows after the real startup.
+        db.execute('DELETE FROM job_keys WHERE job_id IN (SELECT id FROM jobs WHERE owner=?)', (scope.profile_id,))
         db.execute('DELETE FROM records WHERE id=?', (parent.id,))
         db.execute('DELETE FROM jobs WHERE owner=?', (scope.profile_id,))
+    service = DraftingService(Store(target))
+    service.provider._key_supplier = lambda: pytest.fail('Copied privacy phase read a provider key')
+    service.provider.transport = lambda *a, **k: pytest.fail('Copied privacy phase invoked provider transport')
+    with service.store._read() as db:
+        admission_before_restore = (db.execute('SELECT * FROM drafting_admission_heads ORDER BY owner,application_id').fetchall(),
+            db.execute('SELECT * FROM drafting_admission_bindings ORDER BY job_id').fetchall(),
+            db.execute('PRAGMA user_version').fetchone())
+        assert db.execute('SELECT owner,key,job_id,request_sha256,application_id,kind FROM job_keys ORDER BY owner,key').fetchall() == preserved_keys
+    # Explicit post-startup corruption, not permissive orphan-key migration.
+    with service.store._tx() as db:
+        db.executemany('INSERT INTO job_keys(owner,key,job_id,request_sha256,application_id,kind) VALUES(?,?,?,?,?,?)', orphan_keys)
+    with service.store._read() as db:
+        assert db.execute('SELECT owner,key,job_id,request_sha256,application_id,kind FROM job_keys WHERE owner=? ORDER BY owner,key', (scope.profile_id,)).fetchall() == orphan_keys
+        assert (db.execute('SELECT * FROM drafting_admission_heads ORDER BY owner,application_id').fetchall(),
+            db.execute('SELECT * FROM drafting_admission_bindings ORDER BY job_id').fetchall(),
+            db.execute('PRAGMA user_version').fetchone()) == admission_before_restore
+        assert db.execute('SELECT revision,last_job_id FROM drafting_admission_heads WHERE owner=? AND application_id=?',
+            (scope.profile_id, scope.application_id)).fetchone() == (1, None)
+        assert db.execute('SELECT 1 FROM job_keys WHERE owner=?', (scope.profile_id,)).fetchone()
+        assert not db.execute('SELECT 1 FROM drafting_admission_bindings').fetchone()
+    with original.store._read() as db:
+        assert db.execute('SELECT 1 FROM records WHERE id=?', (parent.id,)).fetchone()
+        assert db.execute('SELECT 1 FROM jobs WHERE owner=?', (scope.profile_id,)).fetchone()
     if forget == 'application':
         app = service.domain.application(scope.profile_id, scope.application_id)
         service.domain.delete_application(scope.profile_id, scope.application_id, ApplicationPatch(
@@ -236,3 +269,10 @@ def test_forget_erases_orphan_edit_text_without_parent_or_jobs(drafting, forget)
         assert not db.execute("SELECT 1 FROM records WHERE owner=? AND kind IN ('workspace:draft','workspace:draft_dependency')",
                               (scope.profile_id,)).fetchone()
         assert db.execute('SELECT 1 FROM tombstones WHERE id=?', (child.id,)).fetchone()
+        if forget == 'application':
+            assert not db.execute('SELECT 1 FROM job_keys WHERE owner=? AND application_id=?',
+                (scope.profile_id, scope.application_id)).fetchone()
+            assert db.execute('SELECT owner,key,job_id,request_sha256,application_id,kind FROM job_keys WHERE owner=? ORDER BY owner,key',
+                (scope.profile_id,)).fetchall() == [row for row in orphan_keys if row[4] != scope.application_id]
+        else:
+            assert not db.execute('SELECT 1 FROM job_keys WHERE owner=?', (scope.profile_id,)).fetchone()

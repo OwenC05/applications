@@ -9,6 +9,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import admission_state
 from .contracts import (
     Chunk,
     Citation,
@@ -102,6 +103,10 @@ class Store:
                 CREATE TABLE IF NOT EXISTS tombstones(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
                     kind TEXT NOT NULL);
             ''')
+        # Admission bootstrap owns a fresh writer: executescript ended the
+        # preceding transaction, and must not turn migration into autocommits.
+        with self._tx() as db:
+            admission_state.bootstrap_in_transaction(db)
         # executescript commits implicitly; reconcile in a fresh writer transaction.
         with self._tx() as db:
             for owner, serialized in db.execute('SELECT id,data FROM profiles').fetchall():
@@ -1011,6 +1016,12 @@ class Store:
             workspace_before = self._workspace_state(db, owner)
             metadata_before = self._metadata_revision(db, owner)
             if profile:
+                # Applications are removed below before derivative forgetting.
+                # Validate their heads while their live identities still exist.
+                for (application_id,) in db.execute(
+                        "SELECT id FROM records WHERE owner=? AND kind='workspace:application'",
+                        (owner,)).fetchall():
+                    admission_state.read_head(db, owner, application_id)
                 self.forget_research(db, owner)
             if source_id:
                 self._record(db, owner, source_id, 'source')
@@ -1105,6 +1116,26 @@ class Store:
 
     def forget_jobs(self, db, owner, *, application_id=None, profile=False, affected=()):
         """Same-transaction derivative forgetting; uncertainty/reservations are never released."""
+        admission_state.invalidate_scope(db, owner, application_id)
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'").fetchone():
+            from .domain.contracts import DurableJob
+            # Receipts and scrubbing share the writer. Mark before even key
+            # deletion, and never overwrite a contradictory retained receipt.
+            for jid, state, serialized in db.execute(
+                    'SELECT id,state,data FROM jobs WHERE owner=?', (owner,)).fetchall():
+                raw = json.loads(serialized)
+                if raw.get('kind') not in ('draft', 'assess'):
+                    continue
+                job = DurableJob.model_validate_json(serialized)
+                if (job.id, job.profile_id, job.state) != (jid, owner, state):
+                    fail('CONFLICT', 'Retained job scope is inconsistent', 409)
+                if application_id is not None and job.application_id != application_id:
+                    continue
+                marker = db.execute('SELECT owner,kind FROM tombstones WHERE id=?', (jid,)).fetchone()
+                if marker not in (None, (owner, 'drafting_job_forgotten')):
+                    fail('CONFLICT', 'Retained forgetting receipt is inconsistent', 409)
+                db.execute('INSERT OR IGNORE INTO tombstones VALUES(?,?,?)',
+                           (jid, owner, 'drafting_job_forgotten'))
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='job_keys'").fetchone():
             if application_id:
                 columns = {row[1] for row in db.execute('PRAGMA table_info(job_keys)')}
@@ -1143,7 +1174,11 @@ class Store:
         if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'").fetchone():
             return
         for jid, serialized, parameters in db.execute('SELECT id,data,parameters FROM jobs WHERE owner=?', (owner,)).fetchall():
-            job, options = json.loads(serialized), json.loads(parameters)
+            job = json.loads(serialized)
+            # Paid scope comes from the canonical job, not arbitrary legacy
+            # parameters. Only profile index selection needs parameter parsing.
+            options = (json.loads(parameters) if job['kind'] == 'index'
+                       and application_id is None and not profile else {})
             dependent = (job.get('application_id') == application_id if application_id else
                          profile or job['kind'] in ('draft', 'assess', 'packets')
                          or job['kind'] == 'index' and options.get('corpus') in affected)

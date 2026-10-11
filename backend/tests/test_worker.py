@@ -6,7 +6,10 @@ from uuid import uuid4
 import chromadb
 import pytest
 from fastapi.testclient import TestClient
+from test_drafting_service import drafting  # noqa: F401
+from test_packet_service import packets  # noqa: F401
 from test_retrieval import FixtureModels
+from test_scoped_retrieval import runtime  # noqa: F401
 
 from copilot.api import create_app
 from copilot.config import Settings
@@ -151,16 +154,15 @@ def test_actual_http_reads_mutations_and_cancel_remain_responsive_during_index_b
     assert app.state.store.active_manifest(owner, 'facts') is None
 
 
-def test_competing_workers_claim_one_job_and_unavailable_handlers_do_not_run(tmp_path):
-    from copilot.store import Store
+def test_competing_workers_claim_one_job_and_unavailable_handlers_do_not_run(drafting):  # noqa: F811
+    from test_drafting_service import body, capture_draft_launch
+
     from copilot.worker import Worker
-    store = Store(tmp_path / 'data')
-    owner = store.create_profile('Synthetic', ['tech']).id
+    service, scope, *_ = drafting
+    store, owner = service.store, scope.profile_id
     first = Worker(store, lambda: pytest.fail('Unavailable handler must not initialize service'))
     second = Worker(store, lambda: pytest.fail('Unavailable handler must not initialize service'))
-    application = first.jobs.domain.create_application(owner, ApplicationInput.model_validate_json(
-        '{"expected_metadata_revision":0,"company":"Company","role":"Role","sector":"tech","vacancy_url":"https://example.com/job","questions":[]}'))
-    job = first.jobs.enqueue(owner, 'draft', {}, 'not-enabled', application_id=application.application_id)
+    job = service.enqueue(owner, scope.application_id, capture_draft_launch(drafting, body(drafting)))
     results = []
     threads = [threading.Thread(target=lambda w=w: results.append(w.run_once(job.id, recovery=False))) for w in (first, second)]
     for thread in threads:
@@ -187,11 +189,11 @@ def test_application_forget_is_exact_scope_and_retains_unknown_reservations(tmp_
     for company in ('First', 'Second'):
         apps.append(domain.create_application(owner, ApplicationInput(expected_metadata_revision=domain.detail(owner).profile.revisions.metadata,
             company=company, role='Role', sector='tech', vacancy_url='https://example.com/job')))
-    domain.consent(owner, ConsentInput(expected_consent_revision=0, provider='openai', purposes=('drafting',), granted=True))
+    domain.consent(owner, ConsentInput(expected_consent_revision=0, provider='openai', purposes=('research',), granted=True))
     provider = Provider(worker.jobs, lambda: 'injected-synthetic-key')
     provider.configure_limits(owner, Limits(100000, 10, 50000, 5))
-    first = worker.jobs.enqueue(owner, 'draft', {'private': 'FIRST-JOB-CANARY'}, 'FIRST-KEY-CANARY', apps[0].application_id)
-    second = worker.jobs.enqueue(owner, 'draft', {'private': 'SECOND-JOB-CANARY'}, 'second', apps[1].application_id)
+    first = worker.jobs.enqueue(owner, 'research', {'private': 'FIRST-JOB-CANARY'}, 'FIRST-KEY-CANARY', apps[0].application_id)
+    second = worker.jobs.enqueue(owner, 'research', {'private': 'SECOND-JOB-CANARY'}, 'second', apps[1].application_id)
     lease = worker.jobs.claim(worker.worker_id, job_id=first.id)
     attempt = provider.reserve(first.id, worker.worker_id, lease.fence, 'draft', 5000, 'synthetic-pinned')
     with store._tx() as db:
@@ -353,10 +355,10 @@ def test_synchronous_cli_runner_joins_already_claimed_worker_without_duplicate_g
     models.tokenize_offsets = blocked
     service = EvidenceService(store, tmp_path / 'indexes',
         DenseIndex(chromadb.PersistentClient(path=str(tmp_path / 'chroma'))), models)
-    runtime = Worker(store, lambda: service)
+    background_worker = Worker(store, lambda: service)
     cli = Worker(store, lambda: pytest.fail('Already claimed job must not build again'))
     job = cli.jobs.enqueue(owner, 'index', {'corpus': 'facts'}, 'join')
-    runtime_thread = threading.Thread(target=lambda: runtime.run_once(recovery=False))
+    runtime_thread = threading.Thread(target=lambda: background_worker.run_once(recovery=False))
     runtime_thread.start()
     assert entered.wait(5)
     results = []

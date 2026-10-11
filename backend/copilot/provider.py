@@ -161,19 +161,32 @@ class Provider:
             AND state!='definitely_unsent' AND id!=?""", (job_id, exclude or '')).fetchall()
 
     def request_retry(self, owner, prior_job_id, body):
-        from .retrycontracts import WarnedRetry
         # Revalidate even trusted callers passing a model_copy with invalid fields.
-        body = WarnedRetry.model_validate_json(body.model_dump_json())
+        from .drafting.admission_contracts import _validation_input
+        from .retrycontracts import WarnedRetry
+        from .store import identifier
+        identifier(owner)
+        identifier(prior_job_id)
+        try:
+            body = WarnedRetry.model_validate(_validation_input(body))
+        except ValueError:
+            error('INVALID_INPUT', 'Invalid explicit retry request', 422)
         request_hash = c.canonical_hash({'operation': 'warned_provider_retry', 'prior_job_id': prior_job_id,
                                          'request': body.model_dump(mode='json')})
         with self.store._tx() as db:
             prior, parameters, dependencies = self.jobs._job(db, prior_job_id, owner)
+            self.jobs.domain._get(db, owner, prior.application_id, 'application', c.ApplicationRecord)
             old = db.execute('SELECT job_id,request_sha256 FROM job_keys WHERE owner=? AND key=?',
                              (owner, body.idempotency_key)).fetchone()
             if old:
                 if old[1] != request_hash:
                     error('CONFLICT', 'Idempotency key belongs to a different explicit retry')
-                return self.jobs._job(db, old[0], owner)[0]
+                retry, copied_parameters, copied_dependencies = self.jobs._job(db, old[0], owner)
+                self._verify_retry_replay(db, owner, prior, retry, parameters, dependencies,
+                                          copied_parameters, copied_dependencies, body, old)
+                return retry
+            if prior.kind in ('draft', 'assess'):
+                error('ADMISSION_REQUIRED', 'A new captured drafting admission is required')
             if prior.kind not in ('research', 'draft', 'assess') or prior.state != 'indeterminate':
                 error('CONFLICT', 'Only uncertain owned paid operations allow a warned retry')
             row = db.execute('SELECT data FROM provider_attempts WHERE id=? AND owner=? AND job_id=?',
@@ -198,6 +211,41 @@ class Provider:
                         or len(attempts) + 1 > call_cap):
                     error('BUDGET_EXCEEDED', 'Original uncertainty and retry exceed configured budget', 403)
             return self.jobs._create_warned_retry(db, prior, parameters, dependencies, body, request_hash)
+
+    def _verify_retry_replay(self, db, owner, prior, retry, parameters, dependencies,
+                             copied_parameters, copied_dependencies, body, key_row):
+        from .drafting.admission_guard import inspect_retained_paid_job
+        dependency_rows = [db.execute('SELECT dependencies FROM jobs WHERE id=?', (jid,)).fetchone()[0]
+                           for jid in (prior.id, retry.id)]
+        # _job exposes dependencies as a tuple. Compare retained JSON before
+        # that projection, which otherwise loses container and scalar identity.
+        exact_dependencies = encode(json.loads(dependency_rows[0])) == encode(json.loads(dependency_rows[1]))
+        lineage = db.execute('SELECT owner,prior_job_id,prior_attempt_id,warning_version FROM job_retries WHERE new_job_id=?',
+                             (retry.id,)).fetchone()
+        keys = db.execute('SELECT owner,key,job_id,request_sha256,application_id,kind FROM job_keys WHERE job_id=?',
+                          (retry.id,)).fetchall()
+        attempt_row = db.execute('SELECT id,owner,job_id,state,data FROM provider_attempts WHERE id=?',
+                                 (body.prior_attempt_id,)).fetchone()
+        try:
+            attempt = c.ProviderAttempt.model_validate_json(attempt_row[4]) if attempt_row else None
+            valid_attempt = (attempt is not None
+                and (attempt.id, attempt.profile_id, attempt.job_id, attempt.state) == attempt_row[:4]
+                and (attempt.profile_id, attempt.application_id, attempt.job_id) == (owner, prior.application_id, prior.id))
+        except ValueError:
+            valid_attempt = False
+        if (lineage != (owner, prior.id, body.prior_attempt_id, body.warning_version)
+                or (retry.profile_id, retry.application_id, retry.kind, retry.idempotency_key)
+                != (owner, prior.application_id, prior.kind, body.idempotency_key)
+                or keys != [(owner, body.idempotency_key, retry.id, key_row[1], prior.application_id, prior.kind)]
+                or retry.revisions != prior.revisions or encode(copied_parameters) != encode(parameters)
+                or not exact_dependencies or not valid_attempt):
+            error('CONFLICT', 'Retained explicit retry association is invalid')
+        if retry.kind in ('draft', 'assess'):
+            retained = inspect_retained_paid_job(db, owner, retry.id)
+            prior_retained = inspect_retained_paid_job(db, owner, prior.id)
+            if (retained.origin != 'legacy' or retained.forgotten
+                    or prior_retained.origin != 'legacy' or prior_retained.forgotten):
+                error('CONFLICT', 'Only an exact retained legacy retry can be replayed')
 
     def _authorize(self, db, job_id, worker_id, fence):
         job, _ = self.jobs.assert_current(db, job_id, worker_id, fence)

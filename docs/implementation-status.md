@@ -312,17 +312,30 @@ introduced. Paid enqueue remains separately gated on a durable admission fence:
 page-memory recovery and job-list snapshots cannot prevent distinct-key admissions
 after reload or from another tab. Full S6 and release qualification remain pending.
 
-S6-B2b preparation adds dormant strict launch captures and SQLite admission-state
-primitives. Launch hashes bind the owner, application, operation, captured admission
-revision and unchanged inner request; assessment also binds its exact parent.
-The separate monotonic counter does not alter the seven-dimensional content vector
-or historical request hashes. Storage helpers use caller-owned transactions,
-strict legacy classification and atomic first application/head insertion; they do
-not decide eligibility or authorize provider work. Migration and runtime hooks are
-**not activated**: existing API, worker, retry and privacy behavior is unchanged.
-This increment is groundwork, not a working admission fence. Activation must
-connect every fresh insertion and dispatch path, including retries and forgetting,
-before paid UI launch can be enabled. Full S6 and release gates remain pending.
+S6-B2b activates separate durable admission metadata for generation/reassessment.
+Strict launch wrappers bind scope, operation, admission revision, unchanged inner
+request and assessment parent. One writer atomically inserts job, envelope key,
+retained binding and consumed head; different keys cannot reuse a consumed capture.
+Exact admitted wrapper replay remains historical even after currentness changes.
+Raw requests are accepted only as strictly associated legacy read-only replay.
+Generic fresh paid insertion and drafting warned retries are denied; worker lease,
+provider/cached-result and publication paths additionally require current admission.
+
+Privacy invalidates affected heads and atomically marks full paid-job scrubs without
+resetting consumed captures or releasing uncertain reservations. Marked complete
+scrubs can cease blocking fresh admission, but cannot restore results or execution;
+prepared/unknown attempts remain dominant. At the maximum counter, content/scope
+revocation still denies dispatch. Canonical legacy status/cancellation does not parse
+arbitrary retained parameters or require a live deleted application. The admission
+GET is a separate content-free, read-only history predicate, not a spending grant.
+
+Completed-history validation repeats the full local publication graph inside the
+admission writer. Its CPU cost grows with retained history; no constant latency is
+claimed. Owned malformed publications block their owner; foreign reference auditing
+detects discoverable exact conflicting IDs without treating opaque foreign JSON as
+a global outage. This does not prove absence of hidden links in malformed foreign
+rows. Stop all old API/workers before upgrade. Paid UI launch, provider compatibility,
+full S6, Docker/friend installation and release qualification remain pending.
 
 The port-443 hostile-receiver test could not bind its privileged port on this
 host and remains skipped. An unprivileged rejected-URL receiver test observed

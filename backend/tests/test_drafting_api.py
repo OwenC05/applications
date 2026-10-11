@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from test_drafting_service import body, drafting, execute  # noqa: F401
+from test_drafting_service import body, capture_draft_launch, drafting, execute  # noqa: F401
 from test_packet_service import packets  # noqa: F401
 from test_scoped_retrieval import runtime  # noqa: F401
 from test_workspace import client, create  # noqa: F401
@@ -48,6 +48,7 @@ def test_budget_owner_and_csrf_boundaries(client):  # noqa: F811
 def test_http_preview_queue_and_model_free_inspection(drafting, tmp_path):  # noqa: F811
     service, scope, batch, sent, _ = drafting
     request = body(drafting)
+    launch = capture_draft_launch(drafting, request)
     api = create_app(Settings(service.store.root, tmp_path / 'unused-models'),
                      lambda *_: pytest.fail('HTTP drafting must not initialize retrieval models'))
     def forbidden_key():
@@ -60,12 +61,12 @@ def test_http_preview_queue_and_model_free_inspection(drafting, tmp_path):  # no
             'idempotency_key', 'disclosure_sha256', 'acknowledged'}))
         assert preview.status_code == 200, preview.text
         assert preview.json()['disclosure_sha256'] == request.disclosure_sha256
-        queued = http.post(root, json=request.model_dump(mode='json'))
+        queued = http.post(root, json=launch.model_dump(mode='json'))
         assert queued.status_code == 202, queued.text
         job = queued.json()['job']
         assert job['kind'] == 'draft' and job['state'] == 'queued'
         assert not sent and 'selected_context' not in job and 'disclosure_sha256' not in job
-        assert http.post(root, json=request.model_dump(mode='json')).json()['job']['id'] == job['id']
+        assert http.post(root, json=launch.model_dump(mode='json')).json()['job']['id'] == job['id']
         assert http.get(root).json()['drafts'] == []
         worker = str(uuid4())
         claimed = service.jobs.claim(worker, job_id=job['id'])
@@ -88,7 +89,7 @@ def test_actual_worker_dispatches_guarded_durable_pipeline_without_retrieval(dra
     service, scope, _, sent, settings = drafting
     settings['rewrite'] = rewrite
     request = body(drafting, key='worker-flow')
-    job = service.enqueue(scope.profile_id, scope.application_id, request)
+    job = service.enqueue(scope.profile_id, scope.application_id, capture_draft_launch(drafting, request))
     worker = Worker(service.store, lambda: pytest.fail('Drafting must not initialize retrieval models'),
                     drafting_factory=lambda store, jobs: service)
     result = worker.run_once(job.id, recovery=False)
@@ -131,6 +132,8 @@ def test_slow_drafting_capture_runs_off_event_loop_and_health_stays_responsive(d
     payload = request.model_dump(mode='json')
     if operation == 'preview':
         payload = {k: v for k, v in payload.items() if k not in {'idempotency_key', 'disclosure_sha256', 'acknowledged'}}
+    else:
+        payload = capture_draft_launch(drafting, request).model_dump(mode='json')
     async def probe():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api), base_url='http://127.0.0.1:3001') as http:
             http.headers['x-evidence-token'] = (await http.get('/api/workspace/status')).json()['boot_token']

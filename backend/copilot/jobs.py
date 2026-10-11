@@ -5,15 +5,25 @@ storage; API summaries and errors contain no applicant/provider content.
 """
 import hashlib
 import json
+import logging
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
+
+from pydantic import TypeAdapter
 
 from .contracts import EvidenceError
 from .domain import contracts as c
 from .domain.repository import DomainRepository, uid
+from .drafting.admission_guard import (
+    AdmissionGuardError,
+    inspect_retained_paid_job,
+    require_dispatch_admission,
+)
 from .retrieval.packet_contracts import CorpusScope
 from .retrieval.packet_runtime_contracts import PacketParameters
 from .store import identifier
+
+_IDENTIFIER = TypeAdapter(c.Identifier)
 
 
 def utc_now():
@@ -84,14 +94,24 @@ class Jobs:
             raise ValueError('Trusted clock must return UTC-aware time')
         return value
 
-    def _job(self, db, job_id, owner=None):
+    def _job_record(self, db, job_id, owner=None):
         identifier(job_id)
-        row = db.execute('SELECT owner,data,parameters,dependencies FROM jobs WHERE id=?', (job_id,)).fetchone()
-        if not row or owner is not None and row[0] != owner:
+        row = db.execute('SELECT id,owner,state,data FROM jobs WHERE id=?', (job_id,)).fetchone()
+        if not row or owner is not None and row[1] != owner:
             error('NOT_FOUND', 'Job not found', 404)
-        job = c.DurableJob.model_validate_json(row[1])
+        try:
+            job = c.DurableJob.model_validate_json(row[3])
+            if (job.id, job.profile_id, job.state) != row[:3]:
+                raise ValueError('identity')
+        except ValueError:
+            error('ADMISSION_UNAVAILABLE', 'Retained job integrity is unavailable', 503)
+        return job
+
+    def _job(self, db, job_id, owner=None):
+        job = self._job_record(db, job_id, owner)
         self.store._profile(db, job.profile_id)
-        return job, json.loads(row[2]), tuple(json.loads(row[3]))
+        row = db.execute('SELECT parameters,dependencies FROM jobs WHERE id=?', (job_id,)).fetchone()
+        return job, json.loads(row[0]), tuple(json.loads(row[1]))
 
     def _save(self, db, job):
         db.execute('UPDATE jobs SET state=?,data=? WHERE id=?', (job.state, job.model_dump_json(), job.id))
@@ -108,6 +128,8 @@ class Jobs:
         return revisions
 
     def enqueue(self, owner, kind, parameters, idempotency_key, application_id=None, *, transaction=None, request_hash=None):
+        if kind in ('draft', 'assess'):
+            error('ADMISSION_REQUIRED', 'A captured drafting admission is required')
         if kind not in ('index', 'research', 'packets', 'draft', 'assess', 'cleanup'):
             error('INVALID_INPUT', 'Unknown job kind', 422)
         if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 200:
@@ -186,6 +208,8 @@ class Jobs:
 
         Never rebase the original capture or copy completed/uncertain provider stages.
         """
+        if prior.kind in ('draft', 'assess'):
+            error('ADMISSION_REQUIRED', 'A new captured drafting admission is required')
         retry = prior.model_copy(update={'id': uid(), 'state': 'queued', 'stage': 'queued',
             'idempotency_key': body.idempotency_key, 'fence': 0, 'attempt_count': 0,
             'lease_owner': None, 'heartbeat_at': None, 'lease_expires_at': None,
@@ -207,7 +231,9 @@ class Jobs:
 
     def get(self, owner, job_id):
         with self.store._tx() as db:
-            return self._job(db, job_id, owner)[0]
+            job = self._job_record(db, job_id, owner)
+            self.store._profile(db, owner)
+            return job
 
     def list(self, owner):
         with self.store._tx() as db:
@@ -216,12 +242,46 @@ class Jobs:
                 'SELECT data FROM jobs WHERE owner=? ORDER BY rowid', (owner,)))
 
     def _pause_attempts(self, db, job_id):
-        rows = db.execute("SELECT id,data FROM provider_attempts WHERE job_id=? AND state='prepared'", (job_id,)).fetchall()
-        for attempt_id, serialized in rows:
-            attempt = c.ProviderAttempt.model_validate_json(serialized).model_copy(update={'state': 'indeterminate'})
-            db.execute('UPDATE provider_attempts SET state=?,data=? WHERE id=?',
-                       ('indeterminate', attempt.model_dump_json(), attempt_id))
-        return bool(rows) or bool(db.execute("SELECT 1 FROM provider_attempts WHERE job_id=? AND state='indeterminate'", (job_id,)).fetchone())
+        job = self._job_record(db, job_id)
+        rows = db.execute('SELECT id,owner,job_id,state,data FROM provider_attempts WHERE job_id=?', (job_id,)).fetchall()
+        attempts = []
+        for aid, owner, jid, status, serialized in rows:
+            try:
+                attempt = c.ProviderAttempt.model_validate_json(serialized)
+                if ((attempt.id, attempt.profile_id, attempt.job_id, attempt.state) != (aid, owner, jid, status)
+                        or (owner, attempt.application_id) != (job.profile_id, job.application_id)):
+                    raise ValueError('identity')
+            except ValueError:
+                error('ADMISSION_UNAVAILABLE', 'Retained attempt integrity is unavailable', 503)
+            attempts.append(attempt)
+        # All associations were checked before any mutation.
+        for attempt in attempts:
+            if attempt.state == 'prepared':
+                updated = attempt.model_copy(update={'state': 'indeterminate'})
+                db.execute('UPDATE provider_attempts SET state=?,data=? WHERE id=?',
+                           ('indeterminate', updated.model_dump_json(), attempt.id))
+        return any(a.state in ('prepared', 'indeterminate') for a in attempts)
+
+    def _candidate_admission(self, db, owner, job_id, explicit, *, dispatch=False):
+        safe_job_id = None
+        try:
+            # These identifiers come from retained SQL, not public input. A
+            # corrupt stored scope is history failure, not caller HTTP 422.
+            try:
+                safe_job_id = _IDENTIFIER.validate_python(job_id, strict=True)
+                _IDENTIFIER.validate_python(owner, strict=True)
+            except ValueError as exc:
+                raise AdmissionGuardError('history') from exc
+            retained = (require_dispatch_admission if dispatch else inspect_retained_paid_job)(db, owner, job_id)
+        except AdmissionGuardError:
+            if explicit:
+                raise
+            if safe_job_id is None:
+                logging.getLogger(__name__).warning('ADMISSION_UNAVAILABLE')
+            else:
+                logging.getLogger(__name__).warning('ADMISSION_UNAVAILABLE job_id=%s', safe_job_id)
+            return None
+        return retained
 
     def claim(self, worker_id, lease_seconds=60, job_id=None):
         identifier(worker_id)
@@ -235,6 +295,20 @@ class Jobs:
             for (candidate_id,) in rows:
                 if job_id and job_id != candidate_id:
                     continue
+                # A retained binding identifies the paid guard path even when
+                # canonical history is corrupt. No parameter parsing or writes
+                # occur before the named read-only validation.
+                bound = db.execute('SELECT j.owner FROM jobs j JOIN drafting_admission_bindings b ON b.job_id=j.id WHERE j.id=?',
+                                   (candidate_id,)).fetchone()
+                if bound:
+                    retained = self._candidate_admission(db, bound[0], candidate_id, bool(job_id))
+                    if retained is None or retained.origin == 'legacy' or retained.forgotten:
+                        continue
+                job = self._job_record(db, candidate_id)
+                if job.kind in ('draft', 'assess') and not bound:
+                    retained = self._candidate_admission(db, job.profile_id, job.id, bool(job_id))
+                    if retained is None or retained.origin == 'legacy' or retained.forgotten:
+                        continue
                 try:
                     job, _, dependencies = self._job(db, candidate_id)
                 except EvidenceError as exc:
@@ -269,6 +343,8 @@ class Jobs:
                 if not job.revisions.matches(current, dependencies):
                     self._save(db, job.model_copy(update={'state': 'failed', 'stage': 'stale_inputs'}))
                     continue
+                if job.kind in ('draft', 'assess') and self._candidate_admission(db, job.profile_id, job.id, bool(job_id), dispatch=True) is None:
+                    continue
                 leased = job.model_copy(update={'state': 'running', 'stage': job.stage if job.stage != 'queued' else 'started',
                                                 'fence': job.fence + 1, 'lease_owner': worker_id,
                                                 'lease_expires_at': now + timedelta(seconds=lease_seconds),
@@ -282,6 +358,8 @@ class Jobs:
         if (job.state != 'running' or job.lease_owner != worker_id or job.fence != fence
                 or job.cancellation_requested or job.lease_expires_at <= self._now()):
             error('CONFLICT', 'Job lease or operation authority is no longer current')
+        if job.kind in ('draft', 'assess'):
+            require_dispatch_admission(db, job.profile_id, job.id)
         current = self.capture(db, job.profile_id, job.application_id)
         if not job.revisions.matches(current, dependencies):
             error('CONFLICT', 'Job captured inputs changed')
@@ -305,7 +383,8 @@ class Jobs:
 
     def cancel(self, owner, job_id):
         with self.store._tx() as db:
-            job, _, _ = self._job(db, job_id, owner)
+            job = self._job_record(db, job_id, owner)
+            self.store._profile(db, owner)
             if job.state in ('completed', 'cancelled', 'failed', 'indeterminate'):
                 return job
             uncertain = self._pause_attempts(db, job.id)

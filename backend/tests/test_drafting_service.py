@@ -8,6 +8,7 @@ from test_scoped_retrieval import runtime  # noqa: F401
 
 from copilot.contracts import EvidenceError
 from copilot.domain.repository import ConsentInput
+from copilot.drafting.admission_contracts import DraftLaunch
 from copilot.drafting.runtime_contracts import DraftPreviewRequest, DraftRequest
 from copilot.drafting.service import DraftingService
 from copilot.provider import Limits, Provider
@@ -64,15 +65,21 @@ def body(drafting, key='draft'):
                         disclosure_sha256=preview['disclosure_sha256'], acknowledged=True)
 
 
-def enqueue(drafting, key='draft'):
+def capture_draft_launch(drafting, request):
     service, scope, *_ = drafting
-    request = body(drafting, key)
-    return service.enqueue(scope.profile_id, scope.application_id, request), request
+    state = service.admission_state(scope.profile_id, scope.application_id)
+    return DraftLaunch(admission_revision=state['admission_revision'], request=request)
 
 
-def execute(drafting, key='draft'):
+def enqueue(drafting, key='draft', *, launch=None):
+    service, scope, *_ = drafting
+    launch = launch if launch is not None else capture_draft_launch(drafting, body(drafting, key))
+    return service.enqueue(scope.profile_id, scope.application_id, launch), launch.request
+
+
+def execute(drafting, key='draft', *, launch=None):
     service, *_ = drafting
-    job, request = enqueue(drafting, key)
+    job, request = enqueue(drafting, key, launch=launch)
     worker = str(uuid4())
     lease = service.jobs.claim(worker, job_id=job.id)
     return service.run_draft(job.id, worker, lease.fence), job, request
@@ -82,7 +89,8 @@ def execute(drafting, key='draft'):
 def test_real_provider_three_or_five_calls_atomic_publication_and_inspection(drafting, rewrite, count):
     service, scope, batch, sent, settings = drafting
     settings['rewrite'] = rewrite
-    draft, job, request = execute(drafting)
+    launch = capture_draft_launch(drafting, body(drafting))
+    draft, job, request = execute(drafting, launch=launch)
     assert len(sent) == count
     assert draft.revisions.application_output == job.revisions.application_output + 1
     assert service.jobs.get(scope.profile_id, job.id).state == 'completed'
@@ -90,7 +98,7 @@ def test_real_provider_three_or_five_calls_atomic_publication_and_inspection(dra
     assert detail['current'] and detail['draft']['answers'][0]['packet_id'] == batch.packets[0].id
     assert 'MANUAL_REQUIREMENTS_UNRESOLVED' in detail['reason_codes']
     assert not detail['review_eligible'] and not detail['browser_eligible']
-    assert service.enqueue(scope.profile_id, scope.application_id, request).id == job.id
+    assert service.enqueue(scope.profile_id, scope.application_id, launch).id == job.id
     assert len(service.list(scope.profile_id, scope.application_id)['drafts']) == 1
 
 
@@ -103,7 +111,7 @@ def test_preview_exact_selected_disclosure_no_key_or_send(drafting):
         assert not db.execute("SELECT 1 FROM provider_attempts WHERE job_id IN (SELECT id FROM jobs WHERE json_extract(data,'$.kind')='draft')").fetchone()
     altered = request.model_copy(update={'model': 'different-model'})
     with pytest.raises(EvidenceError, match='disclosure'):
-        service.enqueue(scope.profile_id, scope.application_id, altered)
+        service.enqueue(scope.profile_id, scope.application_id, capture_draft_launch(drafting, altered))
 
 
 @pytest.mark.parametrize('unsupported,limit', [(True, False), (False, True)])
@@ -123,7 +131,7 @@ def test_no_budget_cannot_queue_or_send(drafting):
         db.execute('DELETE FROM budget_limits WHERE owner=?', (scope.profile_id,))
     request = body(drafting)
     with pytest.raises(EvidenceError) as caught:
-        service.enqueue(scope.profile_id, scope.application_id, request)
+        service.enqueue(scope.profile_id, scope.application_id, capture_draft_launch(drafting, request))
     assert caught.value.code == 'BUDGET_REQUIRED'
     assert not sent
 

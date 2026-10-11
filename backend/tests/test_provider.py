@@ -21,8 +21,8 @@ def ready(setup, transport=None, key='synthetic-private-key'):
     store, owner, jobs, _ = setup
     application = app(setup)
     DomainRepository(store).consent(owner, ConsentInput(expected_consent_revision=0,
-        provider='openai', purposes=('drafting',), granted=True))
-    jobs.enqueue(owner, 'draft', {}, 'one', application)
+        provider='openai', purposes=('research',), granted=True))
+    jobs.enqueue(owner, 'research', {}, 'one', application)
     leased = jobs.claim(str(uuid4()), lease_seconds=5)
     provider = Provider(jobs, lambda: key, transport)
     provider.configure_limits(owner, Limits(100000, 10, 50000, 5))
@@ -73,7 +73,7 @@ def test_missing_authority_produces_zero_calls(setup, condition):
         with store._tx() as db:
             db.execute('DELETE FROM budget_limits WHERE owner=?', (owner,))
     else:
-        purpose = ('research',) if condition == 'wrong_purpose' else ('drafting',)
+        purpose = ('drafting',) if condition == 'wrong_purpose' else ('research',)
         DomainRepository(store).consent(owner, ConsentInput(expected_consent_revision=1,
             provider='openai', purposes=purpose, granted=condition != 'no_consent'))
     with pytest.raises(EvidenceError):
@@ -142,7 +142,7 @@ def test_consent_revoked_during_connect_stops_before_body(setup):
     store, owner, _, _ = setup
     def revoke(payload, before_send):
         DomainRepository(store).consent(owner, ConsentInput(expected_consent_revision=1,
-            provider='openai', purposes=('drafting',), granted=False))
+            provider='openai', purposes=('research',), granted=False))
         before_send()
         sent.append(True)
     provider, job = ready(setup, revoke)
@@ -185,7 +185,7 @@ def test_success_then_revocation_prevents_next_stage_and_preserves_first_result(
     provider, job = ready(setup, transport)
     assert send(provider, job, 'first')
     DomainRepository(setup[0]).consent(job.profile_id, ConsentInput(expected_consent_revision=1,
-        provider='openai', purposes=('drafting',), granted=False))
+        provider='openai', purposes=('research',), granted=False))
     with pytest.raises(EvidenceError):
         send(provider, job, 'second')
     assert calls == [True]
@@ -234,7 +234,7 @@ def test_midnight_admission_cannot_exceed_new_day_call_limit(setup):
     with provider.store._tx() as db:
         day = db.execute('SELECT day FROM provider_attempts WHERE id=?', (attempt.id,)).fetchone()[0]
     assert day == '2026-10-09'
-    another = provider.jobs.enqueue(job.profile_id, 'draft', {}, 'new-day', job.application_id)
+    another = provider.jobs.enqueue(job.profile_id, 'research', {}, 'new-day', job.application_id)
     leased = provider.jobs.claim(str(uuid4()), job_id=another.id)
     with pytest.raises(EvidenceError):
         provider.reserve(leased.id, leased.lease_owner, leased.fence, 'second', 5000, 'model')
@@ -246,7 +246,7 @@ def test_concurrent_midnight_admissions_respect_tokens_and_calls(setup, daily_to
     setup[3].now = datetime(2026, 10, 8, 23, 59, 59, tzinfo=timezone.utc)
     provider, first = ready(setup, good)
     provider.configure_limits(first.profile_id, Limits(10000, 2, 5000, 1))
-    other = provider.jobs.enqueue(first.profile_id, 'draft', {}, 'other-midnight', first.application_id)
+    other = provider.jobs.enqueue(first.profile_id, 'research', {}, 'other-midnight', first.application_id)
     second = provider.jobs.claim(str(uuid4()), lease_seconds=5, job_id=other.id)
     attempts = [(job, provider.reserve(job.id, job.lease_owner, job.fence, 'call', 5000, 'model')) for job in (first, second)]
     provider.configure_limits(first.profile_id, Limits(daily_tokens, daily_calls, 5000, 1))
@@ -311,9 +311,11 @@ def test_warned_retry_rejects_without_new_jobs_or_reservations(setup, condition)
     elif condition == 'cross_owner':
         request_owner = store.create_profile('Other', ['tech']).id
     elif condition == 'stale':
-        store.confirm_fact(owner, 'Changed selected evidence')
+        from copilot.domain.repository import ApplicationPatch
+        DomainRepository(store).patch_application(owner, original.application_id,
+            ApplicationPatch(expected_input_revision=0, expected_output_revision=0, role='Changed role'))
     elif condition == 'revoked':
-        DomainRepository(store).consent(owner, ConsentInput(expected_consent_revision=1, provider='openai', purposes=('drafting',), granted=False))
+        DomainRepository(store).consent(owner, ConsentInput(expected_consent_revision=1, provider='openai', purposes=('research',), granted=False))
     elif condition == 'no_budget':
         with store._tx() as db:
             db.execute('DELETE FROM budget_limits WHERE owner=?', (owner,))
@@ -395,6 +397,11 @@ def test_warned_retry_known_paid_operation_preserves_exact_original_capture(setu
     application = app(setup)
     DomainRepository(store).consent(owner, ConsentInput(expected_consent_revision=0,
         provider='openai', purposes=(purpose,), granted=True))
+    if kind in ('draft', 'assess'):
+        with pytest.raises(EvidenceError) as caught:
+            jobs.enqueue(owner, kind, {'server_selected': ['synthetic-span']}, 'operation', application)
+        assert caught.value.code == 'ADMISSION_REQUIRED'
+        return
     queued = jobs.enqueue(owner, kind, {'server_selected': ['synthetic-span']}, 'operation', application)
     leased = jobs.claim(str(uuid4()), job_id=queued.id)
     provider = Provider(jobs, lambda: 'synthetic-key')
@@ -411,7 +418,7 @@ def test_warned_retry_known_paid_operation_preserves_exact_original_capture(setu
 
 def test_retry_prior_attempt_must_belong_to_exact_owned_job(setup):
     provider, original, attempt = uncertain(setup)
-    queued = provider.jobs.enqueue(original.profile_id, 'draft', {}, 'other-job', original.application_id)
+    queued = provider.jobs.enqueue(original.profile_id, 'research', {}, 'other-job', original.application_id)
     leased = provider.jobs.claim(str(uuid4()), job_id=queued.id)
     other = provider.reserve(leased.id, leased.lease_owner, leased.fence, 'draft', 5000, 'model')
     provider._unknown(other.id, leased.id)

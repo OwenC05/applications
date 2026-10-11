@@ -4,6 +4,8 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
+from admission_legacy_helpers import preupgrade_copy
+from test_drafting_assessment import capture_assessment_launch
 from test_drafting_edits_adversarial import edit, edit_request
 from test_drafting_service import drafting, execute  # noqa: F401
 from test_packet_service import packets  # noqa: F401
@@ -15,6 +17,7 @@ from copilot.domain.repository import ApplicationInput, ApplicationPatch, Consen
 from copilot.drafting.assessment_contracts import AssessmentPreviewRequest, AssessmentRequest
 from copilot.drafting.service import DraftingService
 from copilot.provider import Limits
+from copilot.store import Store
 
 
 def consent(service, scope):
@@ -42,18 +45,19 @@ def request_for(service, scope, parent, key='assessment'):
         disclosure_sha256=disclosure['disclosure_sha256'], acknowledged=True)
 
 
-def queued(assessment, key='assessment'):
+def queued(assessment, key='assessment', *, launch=None):
     local, parent = assessment
     service, scope, *_ = local
-    request = request_for(service, scope, parent, key)
-    job = service.enqueue_assessment(scope.profile_id, scope.application_id, parent.id, request)
+    launch = launch if launch is not None else capture_assessment_launch(service, scope, request_for(service, scope, parent, key))
+    request = launch.request
+    job = service.enqueue_assessment(scope.profile_id, scope.application_id, parent.id, launch)
     worker = str(uuid4())
     leased = service.jobs.claim(worker, job_id=job.id)
     return job, worker, leased.fence, request
 
 
-def assessed(assessment, key='assessment'):
-    job, worker, fence, request = queued(assessment, key)
+def assessed(assessment, key='assessment', *, launch=None):
+    job, worker, fence, request = queued(assessment, key, launch=launch)
     return assessment[0][0].run_assess(job.id, worker, fence), job, request
 
 
@@ -94,13 +98,14 @@ def test_adding_assessment_consent_after_generation_stales_old_edit_without_send
 def test_matching_key_digest_does_not_authorize_wrong_linked_retained_job(assessment):
     local, parent = assessment
     service, scope, _, sent, _ = local
-    job, _, _, request = queued(assessment)
-    wrong = service.jobs.enqueue(scope.profile_id, 'draft', {}, 'wrong-link', scope.application_id)
+    launch = capture_assessment_launch(service, scope, request_for(service, scope, parent))
+    job, _, _, request = queued(assessment, launch=launch)
+    wrong = service.jobs.enqueue(scope.profile_id, 'research', {}, 'wrong-link', scope.application_id)
     with service.store._tx() as db:
         db.execute('UPDATE job_keys SET job_id=? WHERE owner=? AND key=?',
             (wrong.id, scope.profile_id, request.idempotency_key))
     with pytest.raises(EvidenceError):
-        service.enqueue_assessment(scope.profile_id, scope.application_id, parent.id, request)
+        service.enqueue_assessment(scope.profile_id, scope.application_id, parent.id, launch)
     assert len(sent) == 3 and service.jobs.get(scope.profile_id, job.id).state == 'running'
 
 
@@ -295,7 +300,7 @@ def test_mixed_lineage_bounds_remain_readable_and_reject_before_reserve(assessme
     assert service.domain.application(scope.profile_id, scope.application_id).output_revision == parent.revisions.application_output
 
 
-def test_orphan_assessment_intent_disclosure_is_forgotten_with_unknown_accounting(assessment):
+def test_orphan_assessment_intent_disclosure_is_forgotten_with_unknown_accounting(assessment, tmp_path):
     local, parent = assessment
     service, scope, *_ = local
     job, worker, fence, _ = queued(assessment)
@@ -307,13 +312,10 @@ def test_orphan_assessment_intent_disclosure_is_forgotten_with_unknown_accountin
     service.provider.transport = unknown
     with pytest.raises(EvidenceError):
         service.run_assess(job.id, worker, fence)
-    with service.store._tx() as db:
-        attempt = db.execute('SELECT id,data,state FROM provider_attempts WHERE job_id=?', (job.id,)).fetchone()
+    with service.store._read() as db:
+        attempt = db.execute('SELECT id,data,state,day,dispatched,request_sha256 FROM provider_attempts WHERE job_id=?', (job.id,)).fetchone()
         intent_ids = [r[0] for r in db.execute("SELECT id FROM records WHERE kind='workspace:draft_intent' AND json_extract(data,'$.job_id')=?", (job.id,))]
         assert intent_ids and attempt[2] == 'indeterminate'
-        db.execute('UPDATE provider_attempts SET response=? WHERE id=?', ('ORPHAN-APP-A-RESPONSE-CANARY', attempt[0]))
-        db.execute('DELETE FROM jobs WHERE id=?', (job.id,))
-        db.execute('DELETE FROM records WHERE id=?', (parent.id,))
     with service.store._read() as db:
         metadata = service.domain.revisions(db, scope.profile_id).metadata
     other = service.domain.create_application(scope.profile_id, ApplicationInput(
@@ -324,18 +326,55 @@ def test_orphan_assessment_intent_disclosure_is_forgotten_with_unknown_accountin
         application_id=other.application_id, job_id=other_job_id)
     other_record = dict(id=other_record_id, profile_id=scope.profile_id,
         application_id=other.application_id, private_text='OTHER-APP-PLAINTEXT-CANARY')
-    with service.store._tx() as db:
+    original = service
+    target = tmp_path / 'owned-orphan-assessment-preupgrade'
+    with preupgrade_copy(original.store, target) as db:
+        orphan_keys = db.execute('SELECT owner,key,job_id,request_sha256,application_id,kind FROM job_keys WHERE job_id=?', (job.id,)).fetchall()
+        preserved_keys = db.execute('SELECT owner,key,job_id,request_sha256,application_id,kind FROM job_keys WHERE job_id!=? ORDER BY owner,key', (job.id,)).fetchall()
+        assert orphan_keys
+        # Marker-0 bootstrap rejects orphan keys. Omit only the exact rows for
+        # the job removed below; restore them as a post-startup fault instead.
+        db.execute('DELETE FROM job_keys WHERE job_id=?', (job.id,))
+        db.execute('UPDATE provider_attempts SET response=? WHERE id=?', ('ORPHAN-APP-A-RESPONSE-CANARY', attempt[0]))
+        db.execute('DELETE FROM jobs WHERE id=?', (job.id,))
+        db.execute('DELETE FROM records WHERE id=?', (parent.id,))
         db.execute('INSERT INTO provider_attempts(id,owner,job_id,state,data,dispatched,day,response,stage,request_sha256) '
             'SELECT ?,owner,?,state,?,dispatched,day,?,stage,request_sha256 FROM provider_attempts WHERE id=?',
             (other_attempt_id, other_job_id, json.dumps(other_attempt), 'OTHER-APP-RESPONSE-CANARY', attempt[0]))
         db.execute('INSERT INTO records(id,owner,kind,data) VALUES(?,?,?,?)',
             (other_record_id, scope.profile_id, 'workspace:draft_intent', json.dumps(other_record)))
+    service = DraftingService(Store(target))
+    service.provider._key_supplier = lambda: pytest.fail('Copied privacy phase read a provider key')
+    service.provider.transport = lambda *a, **k: pytest.fail('Copied privacy phase invoked provider transport')
+    with service.store._read() as db:
+        admission_before_restore = (db.execute('SELECT * FROM drafting_admission_heads ORDER BY owner,application_id').fetchall(),
+            db.execute('SELECT * FROM drafting_admission_bindings ORDER BY job_id').fetchall(),
+            db.execute('PRAGMA user_version').fetchone())
+        assert db.execute('SELECT owner,key,job_id,request_sha256,application_id,kind FROM job_keys ORDER BY owner,key').fetchall() == preserved_keys
+    # Explicit post-startup orphan-key corruption; this is not a claim that
+    # legacy orphan keys can migrate, nor a reset of active admission metadata.
+    with service.store._tx() as db:
+        db.executemany('INSERT INTO job_keys(owner,key,job_id,request_sha256,application_id,kind) VALUES(?,?,?,?,?,?)', orphan_keys)
+    with service.store._read() as db:
+        assert db.execute('SELECT owner,key,job_id,request_sha256,application_id,kind FROM job_keys WHERE job_id=?', (job.id,)).fetchall() == orphan_keys
+        assert (db.execute('SELECT * FROM drafting_admission_heads ORDER BY owner,application_id').fetchall(),
+            db.execute('SELECT * FROM drafting_admission_bindings ORDER BY job_id').fetchall(),
+            db.execute('PRAGMA user_version').fetchone()) == admission_before_restore
+        assert db.execute('SELECT revision,last_job_id FROM drafting_admission_heads WHERE owner=? AND application_id=?',
+            (scope.profile_id, scope.application_id)).fetchone() == (1, None)
+        assert not db.execute("SELECT 1 FROM drafting_admission_bindings WHERE origin!='legacy'").fetchone()
+        assert db.execute('SELECT 1 FROM job_keys WHERE job_id=?', (job.id,)).fetchone()
+    with original.store._read() as db:
+        assert db.execute('SELECT 1 FROM jobs WHERE id=?', (job.id,)).fetchone()
+        assert db.execute('SELECT 1 FROM records WHERE id=?', (parent.id,)).fetchone()
     app = service.domain.application(scope.profile_id, scope.application_id)
     service.domain.delete_application(scope.profile_id, scope.application_id, ApplicationPatch(
         expected_input_revision=app.input_revision, expected_output_revision=app.output_revision))
     with service.store._read() as db:
-        retained = db.execute('SELECT data,state,response FROM provider_attempts WHERE id=?', (attempt[0],)).fetchone()
+        retained = db.execute('SELECT data,state,response,day,dispatched,request_sha256 FROM provider_attempts WHERE id=?', (attempt[0],)).fetchone()
         assert retained[0] == attempt[1] and retained[1] == 'indeterminate' and retained[2] is None
+        assert retained[3:] == attempt[3:]
+        assert not db.execute('SELECT 1 FROM job_keys WHERE job_id=?', (job.id,)).fetchone()
         assert not db.execute("SELECT 1 FROM records WHERE owner=? AND kind IN ('workspace:draft','workspace:draft_intent','workspace:draft_dependency') "
             "AND json_extract(data,'$.application_id')=?", (scope.profile_id, scope.application_id)).fetchone()
         assert all(db.execute('SELECT 1 FROM tombstones WHERE id=?', (rid,)).fetchone() for rid in intent_ids)

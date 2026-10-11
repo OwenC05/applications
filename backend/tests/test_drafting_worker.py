@@ -2,25 +2,44 @@
 from uuid import uuid4
 
 import pytest
-from test_jobs import (
-    app,
-    setup,  # noqa: F401
-)
+from test_drafting_service import body, capture_draft_launch, drafting, execute  # noqa: F401
+from test_jobs import Clock, app, setup  # noqa: F401
+from test_packet_service import packets  # noqa: F401
+from test_scoped_retrieval import runtime  # noqa: F401
 
 from copilot.contracts import EvidenceError
 from copilot.worker import Worker
 
 
-def queued(setup, kind='draft'):  # noqa: F811
-    _, owner, jobs, _ = setup
-    application = app(setup)
-    return jobs.enqueue(owner, kind, {}, 'synthetic-' + kind, application)
+@pytest.fixture
+def paid(drafting):  # noqa: F811
+    service, scope, *_ = drafting
+    clock = Clock()
+    clock.now = service.jobs._now()
+    service.jobs.clock = clock
+    return service.store, scope.profile_id, service.jobs, clock
+
+
+def queued(fixture_values, kind='draft'):
+    service, scope, *_ = fixture_values
+    if kind == 'draft':
+        return service.enqueue(scope.profile_id, scope.application_id,
+                               capture_draft_launch(fixture_values, body(fixture_values)))
+    from test_drafting_assessment import capture_assessment_launch
+    from test_drafting_assessment_adversarial import consent, request_for
+    from test_drafting_edits_adversarial import edit
+    consent(service, scope)
+    generated, *_ = execute(fixture_values)
+    parent = edit(service, scope, generated)
+    request = request_for(service, scope, parent)
+    return service.enqueue_assessment(scope.profile_id, scope.application_id, parent.id,
+                                     capture_assessment_launch(service, scope, request))
 
 
 @pytest.mark.parametrize('kind', ['draft', 'assess'])
-def test_definite_failure_records_exact_authority_despite_stale_inputs(setup, kind):  # noqa: F811
-    store, owner, jobs, _ = setup
-    job = queued(setup, kind)
+def test_definite_failure_records_exact_authority_despite_stale_inputs(paid, drafting, kind):  # noqa: F811
+    store, owner, jobs, _ = paid
+    job = queued(drafting, kind)
     worker = str(uuid4())
     leased = jobs.claim(worker, job_id=job.id)
     store.confirm_fact(owner, 'Synthetic fact changed after job capture')
@@ -30,10 +49,10 @@ def test_definite_failure_records_exact_authority_despite_stale_inputs(setup, ki
 
 
 @pytest.mark.parametrize('loss', ['worker', 'fence', 'expiry', 'cancel', 'reclaim', 'kind'])
-def test_failure_never_grants_publication_or_overwrites_lost_authority(setup, loss):  # noqa: F811
-    _, owner, jobs, clock = setup
+def test_failure_never_grants_publication_or_overwrites_lost_authority(paid, drafting, loss):  # noqa: F811
+    _, owner, jobs, clock = paid
     job = (jobs.enqueue(owner, 'index', {'corpus': 'facts'}, 'index')
-           if loss == 'kind' else queued(setup))
+           if loss == 'kind' else queued(drafting))
     worker = str(uuid4())
     leased = jobs.claim(worker, job_id=job.id, lease_seconds=5)
     fence = leased.fence
@@ -54,9 +73,9 @@ def test_failure_never_grants_publication_or_overwrites_lost_authority(setup, lo
 
 
 @pytest.mark.parametrize('state', ['prepared', 'indeterminate'])
-def test_uncertain_paid_attempt_is_never_failed_or_released(setup, state):  # noqa: F811
-    store, owner, jobs, _ = setup
-    job = queued(setup)
+def test_uncertain_paid_attempt_is_never_failed_or_released(paid, drafting, state):  # noqa: F811
+    store, owner, jobs, _ = paid
+    job = queued(drafting)
     worker = str(uuid4())
     leased = jobs.claim(worker, job_id=job.id)
     with store._tx() as db:
@@ -72,9 +91,9 @@ def test_uncertain_paid_attempt_is_never_failed_or_released(setup, state):  # no
 
 
 @pytest.mark.parametrize('kind', ['draft', 'assess'])
-def test_worker_dispatches_paid_handler_without_loading_retrieval_or_key(setup, kind):  # noqa: F811
-    store, _, jobs, clock = setup
-    job = queued(setup, kind)
+def test_worker_dispatches_paid_handler_without_loading_retrieval_or_key(paid, drafting, kind):  # noqa: F811
+    store, _, jobs, clock = paid
+    job = queued(drafting, kind)
     calls = []
     class Handler:
         def run_draft(self, job_id, worker, fence):
@@ -88,9 +107,9 @@ def test_worker_dispatches_paid_handler_without_loading_retrieval_or_key(setup, 
     assert calls == [job.id]
 
 
-def test_worker_reports_paid_unknown_honestly_without_failing_it(setup):  # noqa: F811
-    store, owner, jobs, clock = setup
-    job = queued(setup)
+def test_worker_reports_paid_unknown_honestly_without_failing_it(paid, drafting):  # noqa: F811
+    store, owner, jobs, clock = paid
+    job = queued(drafting)
     class Handler:
         def run_draft(self, job_id, worker, fence):
             with store._tx() as db:
@@ -140,7 +159,7 @@ def test_orphan_attempt_response_scrub_uses_attempt_scope_not_job_link(setup, li
         revision = jobs.domain.revisions(db, owner).metadata
     other = jobs.domain.create_application(owner, ApplicationInput(expected_metadata_revision=revision,
         company='Other', role='Analyst', sector='finance', vacancy_url='https://other.test/job'))
-    other_job = jobs.enqueue(owner, 'draft', {}, 'other-application', other.application_id)
+    other_job = jobs.enqueue(owner, 'research', {}, 'other-application', other.application_id)
     other_lease = jobs.claim(str(uuid4()), job_id=other_job.id)
     assert send(provider, other_lease, stage='other').answer
     with store._tx() as db:
@@ -189,8 +208,8 @@ def test_orphan_keys_are_erased_by_owner_and_exact_application_scope(setup):  # 
         revision = jobs.domain.revisions(db, owner).metadata
     other = jobs.domain.create_application(owner, ApplicationInput(expected_metadata_revision=revision,
         company='Other', role='Analyst', sector='finance', vacancy_url='https://other.test/job'))
-    first = jobs.enqueue(owner, 'draft', {}, 'private-canary-A', application)
-    second = jobs.enqueue(owner, 'draft', {}, 'private-canary-B', other.application_id)
+    first = jobs.enqueue(owner, 'research', {}, 'private-canary-A', application)
+    second = jobs.enqueue(owner, 'research', {}, 'private-canary-B', other.application_id)
     with store._tx() as db:
         db.execute('DELETE FROM jobs WHERE id IN (?,?)', (first.id, second.id))
         store.forget_jobs(db, owner, application_id=application)
@@ -209,7 +228,7 @@ def test_unknown_legacy_key_scope_blocks_app_deletion_without_cross_app_loss(set
     application = app(setup)
     with store._tx() as db:
         db.execute('DROP TABLE job_keys')
-        db.execute('CREATE TABLE job_keys(owner TEXT,key TEXT,job_id TEXT,request_sha256 TEXT,PRIMARY KEY(owner,key))')
+        db.execute('CREATE TABLE job_keys(owner TEXT NOT NULL,key TEXT NOT NULL,job_id TEXT NOT NULL,request_sha256 TEXT NOT NULL,PRIMARY KEY(owner,key))')
         db.execute('INSERT INTO job_keys VALUES(?,?,?,?)', (owner, 'private-legacy-unknown', str(uuid4()), 'a' * 64))
     from copilot.jobs import Jobs
     Jobs(store)
@@ -232,11 +251,11 @@ def test_legacy_key_scope_migration_backfills_only_exact_retained_job(setup, tam
     from copilot.jobs import Jobs
 
     store, owner, jobs, _ = setup
-    job = queued(setup)
+    job = jobs.enqueue(owner, 'research', {}, 'scope-migration', app(setup))
     with store._tx() as db:
         rows = db.execute('SELECT owner,key,job_id,request_sha256 FROM job_keys').fetchall()
         db.execute('DROP TABLE job_keys')
-        db.execute('CREATE TABLE job_keys(owner TEXT,key TEXT,job_id TEXT,request_sha256 TEXT,PRIMARY KEY(owner,key))')
+        db.execute('CREATE TABLE job_keys(owner TEXT NOT NULL,key TEXT NOT NULL,job_id TEXT NOT NULL,request_sha256 TEXT NOT NULL,PRIMARY KEY(owner,key))')
         db.executemany('INSERT INTO job_keys VALUES(?,?,?,?)', rows)
         if tamper == 'missing_job':
             db.execute('DELETE FROM jobs WHERE id=?', (job.id,))
@@ -249,4 +268,4 @@ def test_legacy_key_scope_migration_backfills_only_exact_retained_job(setup, tam
     Jobs(store)
     with store._read() as db:
         scope = db.execute('SELECT application_id,kind FROM job_keys WHERE owner=?', (owner,)).fetchone()
-    assert scope == ((job.application_id, 'draft') if tamper == 'none' else (None, None))
+    assert scope == ((job.application_id, 'research') if tamper == 'none' else (None, None))

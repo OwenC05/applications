@@ -12,7 +12,6 @@ from .assessment_contracts import (
     AssessmentParameters,
     AssessmentPreviewRequest,
     AssessmentPublication,
-    AssessmentRequest,
     assessment_request_hash,
 )
 from .edit_contracts import EditPublication
@@ -58,7 +57,9 @@ class DraftAssessments:
             if draft_id in seen:
                 conflict('Assessment lineage is cyclic')
             seen.add(draft_id)
-            rows = db.execute("SELECT data FROM records WHERE owner=? AND kind='workspace:draft_dependency' AND json_extract(data,'$.draft_id')=?", (owner, draft_id)).fetchall()
+            rows = [(data,) for (data,) in db.execute(
+                "SELECT data FROM records WHERE owner=? AND kind='workspace:draft_dependency'", (owner,))
+                if isinstance(json.loads(data), dict) and json.loads(data).get('draft_id') == draft_id]
             if len(rows) != 1:
                 conflict('Assessment lineage association unavailable')
             value = json.loads(rows[0][0])
@@ -139,63 +140,9 @@ class DraftAssessments:
             conflict('Assessment captured parameters mismatch')
         return parameters, parent
 
-    def _replay(self, db, owner, app, parent_id, request, digest):
-        row = db.execute('SELECT job_id,request_sha256,application_id,kind FROM job_keys WHERE owner=? AND key=?', (owner, request.idempotency_key)).fetchone()
-        if not row:
-            return None
-        if row[1:] != (digest, app, 'assess'):
-            conflict('Assessment idempotency key belongs to another request')
-        job, raw, _ = self.jobs._job(db, row[0], owner)
-        sql = db.execute('SELECT owner,state FROM jobs WHERE id=?', (row[0],)).fetchone()
-        if (job.id != row[0] or sql != (owner, job.state) or job.profile_id != owner or job.application_id != app
-                or job.kind != 'assess' or job.idempotency_key != request.idempotency_key):
-            conflict('Assessment retained replay association changed')
-        parameters, _ = self._parameters(db, job, raw)
-        if parameters.request != request or parameters.parent_draft_id != parent_id:
-            conflict('Assessment retained replay association changed')
-        return job
-
     def enqueue(self, owner, app, parent_id, request):
-        try:
-            return self._enqueue(owner, app, parent_id, request)
-        except ValueError:
-            conflict('Assessment stored schema or integrity mismatch')
-
-    def _enqueue(self, owner, app, parent_id, request):
-        request = self._request(request, AssessmentRequest)
-        digest = assessment_request_hash(owner, app, parent_id, request)
-        with self.store._read() as db:
-            old = self._replay(db, owner, app, parent_id, request, digest)
-            if old is not None:
-                return old
-        preview_request = AssessmentPreviewRequest.model_validate_json(request.model_dump_json(exclude={'idempotency_key', 'disclosure_sha256', 'acknowledged'}))
-        preview = self.preview(owner, app, parent_id, preview_request)
-        if preview['disclosure_sha256'] != request.disclosure_sha256:
-            conflict('Exact assessment disclosure acknowledgement required')
-        with self.store._tx() as db:
-            old = self._replay(db, owner, app, parent_id, request, digest)
-            if old is not None:
-                return old
-            capture = self._capture(db, owner, app, parent_id, request)
-            disclosure = self._disclosure(capture[0][2].context, capture[1], request, self._limits(db, owner))
-            if c.canonical_hash(disclosure) != request.disclosure_sha256:
-                conflict('Assessment disclosure changed')
-            limits = disclosure['configured_limits']
-            if not limits:
-                raise EvidenceError('BUDGET_REQUIRED', 'Configure explicit assessment reservation limits', 403)
-            rows = db.execute("SELECT data FROM provider_attempts WHERE owner=? AND day=? AND state!='definitely_unsent'", (owner, self.jobs._now().date().isoformat())).fetchall()
-            attempts = [c.ProviderAttempt.model_validate_json(row[0]) for row in rows]
-            bound = disclosure['conservative_reservation_units']
-            if (limits['job_tokens'] < bound or limits['job_calls'] < 1
-                    or limits['daily_tokens'] < bound + sum(max(a.reserved_tokens, a.reported_tokens or 0) for a in attempts)
-                    or limits['daily_calls'] < 1 + len(attempts)):
-                raise EvidenceError('BUDGET_EXCEEDED', 'Configured headroom must cover conservative one-call bound', 403)
-            parameters = AssessmentParameters(profile_id=owner, application_id=app, parent_draft_id=parent_id,
-                request=request, request_sha256=digest, source_request=capture[0][2].request,
-                context=capture[0][2].context, input_draft=capture[1], batch_id=capture[0][3].id,
-                batch_sha256=capture[0][3].batch_sha256, disclosure=disclosure)
-            return self.jobs.enqueue(owner, 'assess', parameters.model_dump(mode='json'), request.idempotency_key,
-                app, transaction=db, request_hash=digest)
+        from .admission_runtime import DraftAdmission
+        return DraftAdmission(self.service).enqueue_assessment(owner, app, parent_id, request)
 
     def _draft(self, owner, app, draft_id, created_at, parent, result):
         return c.DraftRevision(id=draft_id, profile_id=owner, application_id=app,
