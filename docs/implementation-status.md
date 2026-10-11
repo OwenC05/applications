@@ -312,6 +312,18 @@ introduced. Paid enqueue remains separately gated on a durable admission fence:
 page-memory recovery and job-list snapshots cannot prevent distinct-key admissions
 after reload or from another tab. Full S6 and release qualification remain pending.
 
+S6-B2b preparation adds dormant strict launch captures and SQLite admission-state
+primitives. Launch hashes bind the owner, application, operation, captured admission
+revision and unchanged inner request; assessment also binds its exact parent.
+The separate monotonic counter does not alter the seven-dimensional content vector
+or historical request hashes. Storage helpers use caller-owned transactions,
+strict legacy classification and atomic first application/head insertion; they do
+not decide eligibility or authorize provider work. Migration and runtime hooks are
+**not activated**: existing API, worker, retry and privacy behavior is unchanged.
+This increment is groundwork, not a working admission fence. Activation must
+connect every fresh insertion and dispatch path, including retries and forgetting,
+before paid UI launch can be enabled. Full S6 and release gates remain pending.
+
 The port-443 hostile-receiver test could not bind its privileged port on this
 host and remains skipped. An unprivileged rejected-URL receiver test observed
 zero connections; that and one successful public fetch do not establish the
