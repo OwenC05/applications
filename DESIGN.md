@@ -130,6 +130,43 @@ overflow; a bounded axe scan reported no violations. This is not WCAG certificat
 cross-browser coverage, full S6 or release qualification. Controller/source unit
 tests remain separate evidence, not a substitute for those browser checks.
 
+### Read-only selected-data disclosures — S6-B1
+
+After saved writing, offer explicit generation and saved-edit assessment disclosure
+inspection with stable labelled model/output-ceiling controls. No acknowledgement,
+queue, budget configuration, key input or paid launch is enabled by this increment.
+Use the server's fresh seven-dimension vector for generation; assessment remains
+bound to a current unassessed local edit's exact saved bytes/vector/three hashes.
+Never reconstruct authority from profile/packet counters or silently rebase text.
+Dirty, saving, unresolved and quarantined writing blocks inspection; explain why.
+
+Render selected questions, confirmed personal excerpts, employer excerpts,
+criteria/inferences, gaps and exact edited text as literal text in expandable
+sections. Show server hashes/versions without claiming browser verification.
+Say selected-data disclosure, not exact future outgoing request: later generation
+stages may transmit intermediate generated text. Explain 3–5 calls/at most one
+rewrite versus one critique/no rewrite, conservative input-byte/output-ceiling
+reservation units, unknown money/not zero and provider retention. Show recorded
+provider and applicable OpenAI purpose separately; another provider's grant is
+not OpenAI permission. Missing permission does not prevent read-only inspection.
+Preview success does not certify keys, budget admission or transmission readiness.
+
+Selection, effective typing, save, configuration or domain-input changes invalidate
+both displayed disclosure and pending responses. A defensive read-only saved-writing
+capture observer cannot interrupt editing or privacy cleanup. Retirement clears
+private disclosure content; no domain form is acknowledged by inspection. Optional
+assessment permission should be explicitly granted before generation if wanted;
+adding it later stales existing writing. Paid launch/recovery and its browser gates
+remain the separate S6-B2 increment, not implied by these controls.
+
+Bounded actual-browser B1 checks exercised both disclosure kinds against a real
+synthetic local API/SQLite/Chroma fixture: exact saved Unicode/CRLF, no durable
+job/attempt/budget changes, pending-GET invalidation before POST, stable writing
+focus/caret and private detached DOM clearing. Tested 375/768/1280px widths had
+no horizontal overflow; a scoped axe scan found no violations. This is not full
+accessibility conformance or paid-provider/release evidence. The backend fixture
+predates the narrow strict-counter repair, which has separate fresh HTTP tests.
+
 ### Bounded application-activity preview (earlier increment)
 
 The published job/status/cancel/usage and static-research inspection contracts

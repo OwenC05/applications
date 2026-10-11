@@ -37,7 +37,7 @@ function accepted(parent, body, id = 'child') {
     pre_revisions: body.expected_revisions, request: body, text_sha256: child.text_sha256, ledger_sha256: child.ledger_sha256, style_notes: []};
   return child;
 }
-async function harness({respond, confirmDiscard = () => true, exportText = async () => 'SAVED export', recovery = null, onHandoff = () => false, initialize = true} = {}) {
+async function harness({respond, confirmDiscard = () => true, exportText = async () => 'SAVED export', recovery = null, onHandoff = () => false, onCaptureChange = () => {}, initialize = true} = {}) {
   const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
   const calls = [], edits = new EditBuffers(), notices = [], published = [];
   const parent = inspection();
@@ -46,13 +46,78 @@ async function harness({respond, confirmDiscard = () => true, exportText = async
     if (path.endsWith('/packets')) return {batches: []};
     return parent;
   };
-  const pane = draftingPane({api, exportText, recovery, onHandoff, owner: 'owner', application: 'app', edits, notify: value => notices.push(value), keyFactory: () => 'logical-key', confirmDiscard, onPublished: value => published.push(value)});
+  const pane = draftingPane({api, exportText, recovery, onHandoff, onCaptureChange, owner: 'owner', application: 'app', edits, notify: value => notices.push(value), keyFactory: () => 'logical-key', confirmDiscard, onPublished: value => published.push(value)});
   const select = selectNamed(pane.element, 'Saved draft revision');
   if (initialize) { find(pane.element, 'Refresh saved draft list').click(); await tick(); select.value = 'parent'; select.onchange(); await tick(); }
   const input = walk(pane.element).find(item => item.tagName === 'textarea');
   return {pane, calls, edits, parent, input, select, published, restore() { pane.retire(); globalThis.document = previous; }};
 }
 function type(input, value) { input.value = value; input.events.input(); }
+
+test('disclosure capture is defensive and tracks effective exact saved writing without changing its node', async () => {
+  const changed = [], h = await harness({onCaptureChange: value => changed.push(value)});
+  try {
+    const original = h.pane.capture();
+    assert.equal(original.draftInspection.draft.id, 'parent');
+    assert.equal(original.packetInspection, null); assert.equal(original.bufferMatchesSaved, true);
+    original.draftInspection.draft.answers[0].text = 'mutated copy';
+    assert.equal(h.pane.capture().draftInspection.draft.answers[0].text, 'Saved 🚀\r\ntext');
+    type(h.input, 'Newer e\u0301 😀');
+    const typed = h.pane.capture();
+    assert.ok(typed.epoch > original.epoch); assert.equal(typed.bufferMatchesSaved, false);
+    assert.equal(typed.draftInspection.draft.answers[0].text, 'Saved 🚀\r\ntext');
+    assert.equal(walk(h.pane.element).find(item => item.tagName === 'textarea'), h.input);
+    type(h.input, 'Saved 🚀\r\ntext');
+    assert.equal(h.pane.capture().bufferMatchesSaved, true);
+    assert.ok(changed.length >= 3);
+    changed.at(-1).draftInspection.draft.answers[0].text = 'observer mutation';
+    assert.equal(h.pane.capture().draftInspection.draft.answers[0].text, 'Saved 🚀\r\ntext');
+  } finally { h.restore(); }
+});
+
+test('disclosure packet capture requires matched inspected scope and clears before explicit refresh', async () => {
+  let wrong = false;
+  const packet = {schema_version: 1, current: true, semantic_support: 'not_assessed', reason_codes: [],
+    batch: {id: 'batch', profile_id: 'owner', application_id: 'app', batch_sha256: 'd'.repeat(64), canonical_questions: [], packets: [], manual_requirements: [], hiring_criteria: []}};
+  const h = await harness({respond(path) {
+    if (path.endsWith('/packets')) return {batches: [packet]};
+    if (path.endsWith('/packets/batch')) return wrong ? {...packet, batch: {...packet.batch, application_id: 'other'}} : packet;
+  }});
+  try {
+    const select = selectNamed(h.pane.element, 'Saved packet batch');
+    select.value = 'batch'; select.onchange(); await tick();
+    assert.equal(h.pane.capture().packetInspection.batch.id, 'batch');
+    find(h.pane.element, 'Refresh saved packet list').click();
+    assert.equal(h.pane.capture().packetInspection, null); await tick();
+    wrong = true; select.value = 'batch'; select.onchange(); await tick();
+    assert.equal(h.pane.capture().packetInspection, null);
+  } finally { h.restore(); }
+});
+
+test('capture observers cannot interrupt saves and retirement emits no private inspection', async () => {
+  const changes = [];
+  const h = await harness({onCaptureChange(value) { changes.push(value); throw Error('Observer failure'); },
+    respond(path, options, parent) { if (options?.method === 'POST') return accepted(parent, options.body); }});
+  try {
+    type(h.input, 'Save with failing observer');
+    find(h.pane.element, 'Save new local revision').click(); await tick();
+    assert.equal(h.published.length, 1); assert.equal(h.pane.capture().draftInspection.draft.id, 'child');
+    h.pane.retire();
+    const last = changes.at(-1);
+    assert.equal(last.retired, true); assert.equal(last.packetInspection, null); assert.equal(last.draftInspection, null);
+    assert.equal(h.pane.capture().draftInspection, null);
+    const count = changes.length; h.pane.retire(); await tick(); assert.equal(changes.length, count);
+  } finally { h.restore(); }
+});
+
+test('an uncertain saved outcome never exposes a new assessment baseline through the bridge', async () => {
+  const h = await harness({respond(path, options) { if (options?.method === 'POST') throw Object.assign(Error('Unknown outcome'), {status: 409}); }});
+  try {
+    type(h.input, 'Captured'); find(h.pane.element, 'Save new local revision').click(); await tick();
+    const capture = h.pane.capture();
+    assert.equal(capture.uncertain, true); assert.equal(capture.draftInspection, null);
+  } finally { h.restore(); }
+});
 
 test('saved ranges and counters use code points, exact excerpts and actual max_chars', () => {
   const draft = {answers: [{question_id: 'q', text: '🚀e\u0301\r\n<script>'}], cover_letter: ''};

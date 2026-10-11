@@ -408,6 +408,7 @@ Base: `/api/workspace/profiles/{profile_id}/applications/{application_id}/drafts
 
 | Route | Contract |
 |---|---|
+| `GET /api/workspace/profiles/{profile_id}/applications/{application_id}/drafting-state` | Read-only `{schema_version:1,profile_id,application_id,current_revisions,consent}`. One validated snapshot supplies all seven current counters and a minimal provider/purpose/granted/revision consent summary or null. Not a permission token; no key lookup, model initialization, job creation or budget enabling. |
 | `POST .../preview` | Exact `batch_id,batch_sha256,expected_revisions,model,max_output_tokens` (1–8,000; default 2,000). Returns exact selected-context disclosure/hash, at-most-five-call conservative reservation bound, configured limits and unknown monetary status. No key lookup, provider send or budget enabling. |
 | `POST ...` | Same fields plus `idempotency_key,disclosure_sha256,acknowledged:true`; returns 202 `{schema_version:1,job:...}`. Exact replay precedes currentness checks; changed requests conflict. Whole five-call conservative budget headroom is required. |
 | `GET ...` | `{schema_version:1,drafts:[inspection...]}`. No model/provider initialization. |
@@ -418,6 +419,17 @@ Base: `/api/workspace/profiles/{profile_id}/applications/{application_id}/drafts
 `research`, even when zero. Use the current canonical vector, not packet metadata.
 Model is a supplied bounded identifier, not a URL or advertised compatible default.
 Provider/model compatibility remains unqualified; no paid smoke was performed.
+
+The Python workspace can explicitly inspect generation and saved-edit assessment
+disclosures using these existing preview routes. It uses a fresh server-captured
+vector for generation and the saved parent's exact vector/hashes for assessment;
+it never merges packet/profile counters or rebases stale writing. Editing or
+changing the selected data/configuration clears the preview. These are selected-data
+disclosures, not exact future multi-stage request bytes: later generation calls
+also contain intermediate generated text. Applicable OpenAI-purpose permission is
+shown separately, not inferred from a preview. Preview success does not certify a
+key, budget admission or readiness to transmit. UI enqueue/acknowledgement controls
+remain unavailable in this bounded increment.
 
 Budget routes: `GET /api/workspace/profiles/{profile_id}/budget` reports
 `configured_limits` or null. `POST` requires positive bounded integers

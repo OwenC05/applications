@@ -111,6 +111,11 @@ page session. Successful application/profile deletion or source/proposal
 forgetting conservatively clears that owner's retained writing, including other
 applications that could contain deleted feedback facts.
 Hard reload/close loses this memory and is not reconciliation.
+A separate read-only disclosure pane inspects the selected packet's generation
+context or a current saved local edit's exact assessment text, model, purpose state
+and conservative usage ceilings. It never sends to a cloud provider or queues work.
+Changing writing, selections or configuration clears the preview. Monetary cost
+remains unknown—not zero—and a preview is not key/consent/budget readiness.
 Cloud/research launch, paid drafting/reassessment, application review and browser
 actions are **not available in this preview**. Existing question text/order cannot yet be
 changed in its line editor: it refuses changes rather than reassigning IDs or
@@ -125,6 +130,13 @@ approved isolated tool cache, without project or system package changes. These
 bounded checks are not WCAG certification or release qualification. No paid cloud
 calls or employer actions were tested. The default evidence page and Node app
 are unchanged.
+Separate actual-browser disclosure checks exercised generation/assessment previews,
+exact saved Unicode/CRLF text, invalidation before a pending GET could issue its
+preview POST, provider-specific consent and private DOM cleanup on scope change.
+Job/key/attempt/budget records stayed unchanged. Its three tested viewport widths
+had no horizontal overflow and a bounded automated scan found no violations.
+The strict backend retained-counter repair is covered separately by fresh HTTP and
+regression tests; that browser fixture was imported before the repair.
 
 ### Docker setup
 

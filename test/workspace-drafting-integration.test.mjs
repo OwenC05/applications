@@ -133,7 +133,7 @@ test('actual root operation keeps privacy completion outside stale success/error
   const privacy = source.slice(source.indexOf('async function forgetWritingAfter('), source.indexOf('function context('));
   assert.match(privacy, /const owner = state.owner/);
   assert.match(privacy, /await writingRecovery.forgetOwnerAfter\(owner, action\)/);
-  assert.match(privacy, /if \(state.owner === owner\) \{ writing\?\.retire\(\); writing = null; \}/);
+  assert.match(privacy, /if \(state.owner === owner\) \{ writing\?\.retire\(\); writing = null; retireDisclosure\(\); \}/);
 });
 
 test('retiring an owned writing form forgets only its browser tracking without acknowledging another form', () => {
@@ -153,13 +153,15 @@ test('actual privacy completion retires same-owner writing but never another own
     recovery.retain('owner', 'app', capsule()); recovery.retain('other', 'app', capsule('other', 'app'));
     let retired = 0, resolve, reject;
     const response = new Promise((yes, no) => { resolve = yes; reject = no; });
-    const helper = new Function('state', 'writingRecovery', 'startWriting', `let writing = startWriting; ${definition}; return {run: forgetWritingAfter, current: () => writing};`)(
-      state, recovery, {retire() { retired++; }});
+    let disclosureRetired = 0;
+    const helper = new Function('state', 'writingRecovery', 'startWriting', 'retireDisclosure', `let writing = startWriting; ${definition}; return {run: forgetWritingAfter, current: () => writing};`)(
+      state, recovery, {retire() { retired++; }}, () => { disclosureRetired++; });
     const pending = helper.run(() => response);
     if (switched) state.owner = 'other';
     if (fail) reject(Error('Deletion failed')); else resolve({deleted: true});
     if (fail) await assert.rejects(pending); else await pending;
     assert.equal(retired, !switched && !fail ? 1 : 0);
+    assert.equal(disclosureRetired, !switched && !fail ? 1 : 0);
     assert.equal(helper.current() === null, !switched && !fail);
     assert.equal(recovery.has('owner', 'app'), fail);
     assert.equal(recovery.has('other', 'app'), true);
@@ -189,4 +191,29 @@ test('ending global busy state does not visually unlock quarantined form actions
   assert.equal(state.busy, false);
   assert.equal(locked.disabled, true); assert.equal(ordinary.disabled, false);
   assert.match(source, /control.dataset.writingLocked = 'true'/);
+});
+
+test('root mounts a read-only disclosure bridge without changing saved-output or edit ownership', async () => {
+  const source = await readFile(new URL('../backend/ui/workspace/app.js', import.meta.url), 'utf8');
+  assert.match(source, /import \{disclosurePane\} from '\.\/disclosure-pane\.js'/);
+  assert.match(source, /onCaptureChange: \(\) => disclosure\?\.invalidate\(\)/);
+  assert.match(source, /getCapture: \(\) => writing\?\.capture\(\)/);
+  assert.match(source, /isDirty: \(\) => state.dirty/);
+  assert.ok(source.indexOf('append(writing.element)') < source.indexOf('append(disclosure.element)'));
+  assert.ok(source.indexOf('append(disclosure.element)') < source.indexOf("gate.capture('history')"));
+  const retirement = source.slice(source.indexOf('function retireDisclosure('), source.indexOf('function retireActivity('));
+  assert.match(retirement, /disclosure\?\.retire\(\); disclosure = null/);
+});
+
+test('domain input invalidates a disclosure without clearing buffers or replacing its controls', async () => {
+  const source = await readFile(new URL('../backend/ui/workspace/app.js', import.meta.url), 'utf8');
+  const definition = source.slice(source.indexOf('function invalidateDisclosureInput('), source.indexOf('function writingBlocksNavigation('));
+  let invalidated = 0;
+  const own = {}, other = {};
+  const disclosure = {element: {contains: target => target === own}, invalidate() { invalidated++; }};
+  const invalidate = new Function('disclosure', `return (${definition.trim()});`)(disclosure);
+  invalidate({target: own}); assert.equal(invalidated, 0);
+  invalidate({target: other}); assert.equal(invalidated, 1);
+  assert.doesNotMatch(definition, /edits\.|replaceChildren|\.value\s*=/);
+  assert.match(source, /\$\('main'\).addEventListener\('input', invalidateDisclosureInput\)/);
 });

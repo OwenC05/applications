@@ -280,6 +280,25 @@ no system or project package changes, paid cloud calls or employer actions occur
 This evidence is not WCAG certification, cross-browser coverage, full S6 or release
 qualification. Controller/backend tests are separate evidence, not browser proof.
 
+S6-B1 adds one SELECT-only current drafting-state snapshot and read-only selected-data
+disclosure inspection for generation and unchanged-text assessment. Generation uses
+the authoritative full current vector; assessment retains the exact current local
+edit's own vector/hashes/text. Options, writing or domain input changes invalidate
+the preview; private inspection content is cleared on retirement. Purpose status
+is provider-specific and separate from preview success. No enqueue/acknowledgement,
+cloud send, key discovery, budget enabling, review or browser action is introduced.
+Independent code and architecture review covered the bounded implementation. A
+separate actual B1 browser fixture exercised generation/assessment disclosure,
+exact Unicode/CRLF text, applicable OpenAI purpose state, five/one-call bounds,
+unknown money and pending-GET invalidation preventing its preview POST. Jobs,
+idempotency keys, attempts and budget records were unchanged. Activity refresh
+preserved writing/focus/caret, domain edits blocked inspection and scope retirement
+cleared retained private DOM. The three viewport widths had no horizontal overflow;
+a bounded axe scan reported 22 passes, no violations/incomplete results, and
+captured console/runtime errors were empty. The fixture's backend import predates
+the narrow strict retained-counter repair; fresh backend HTTP/regression tests
+cover that repair separately. No paid provider or release qualification is claimed.
+
 The port-443 hostile-receiver test could not bind its privileged port on this
 host and remains skipped. An unprivileged rejected-URL receiver test observed
 zero connections; that and one successful public fetch do not establish the

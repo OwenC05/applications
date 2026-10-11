@@ -3,12 +3,16 @@ import {node, field, section, text, link} from './dom.js';
 import {writingQuestions, sourcePreview} from './questions.js';
 import {activityPane} from './activity.js';
 import {draftingPane} from './drafting-pane.js';
+import {disclosurePane} from './disclosure-pane.js';
 
 let activity = null;
 let writing = null;
+let disclosure = null;
+function retireDisclosure() { disclosure?.retire(); disclosure = null; }
 function retireActivity() {
   activity?.retire(); activity = null;
   writing?.retire(); writing = null;
+  retireDisclosure();
 }
 
 const $ = id => document.getElementById(id);
@@ -27,6 +31,9 @@ function notify(message, error = false) {
   $('notice').textContent = message;
   $('notice').className = error ? 'error' : '';
 }
+function invalidateDisclosureInput(event) {
+  if (disclosure && !disclosure.element.contains(event.target)) disclosure.invalidate();
+}
 function writingBlocksNavigation() {
   if (!writing?.unresolved) return false;
   notify('A writing save is pending or its outcome is unresolved. Resolve the exact saved edit in place before changing scope or reloading. Closing/reloading the page can lose the in-memory operation; no rollback is claimed.', true);
@@ -36,7 +43,7 @@ async function forgetWritingAfter(action) {
   const owner = state.owner;
   const result = await writingRecovery.forgetOwnerAfter(owner, action);
   // Privacy cleanup survives stale UI tickets, without touching another owner.
-  if (state.owner === owner) { writing?.retire(); writing = null; }
+  if (state.owner === owner) { writing?.retire(); writing = null; retireDisclosure(); }
   return result;
 }
 function context() {
@@ -233,7 +240,7 @@ async function applications(create = false) {
   };
   lockForms();
   const url = externalUrl(application.vacancy_url);
-  $('main').append(section(`${application.company} · ${application.role}`, ...(url ? [link(url, 'Inspect the public vacancy')] : []), text('Inspect stored research, packets and drafts below; local edits create unassessed immutable revisions. Research launch and paid drafting/reassessment controls are not wired here. Human review, form filling and submission remain unavailable.', 'warning'), inputForm, lockNotice));
+  $('main').append(section(`${application.company} · ${application.role}`, ...(url ? [link(url, 'Inspect the public vacancy')] : []), text('Inspect stored research, packets, drafts and selected-data disclosures below; local edits create unassessed immutable revisions. Research launch and paid drafting/reassessment launch are not wired here. Human review, form filling and submission remain unavailable.', 'warning'), inputForm, lockNotice));
   activity = activityPane({api, owner: state.owner, application: application.application_id});
   $('main').append(activity.element);
   writing = draftingPane({api, exportText: createTextClient({token: () => state.token}),
@@ -245,11 +252,16 @@ async function applications(create = false) {
       if (retained) lockForms();
       return retained;
     },
+    onCaptureChange: () => disclosure?.invalidate(),
     onPublished: published => {
       if (state.owner === published.owner && state.application === published.application) advanceApplicationOutput(application, published);
     }});
   writing.element.classList.add('application-writing');
   $('main').append(writing.element);
+  disclosure = disclosurePane({api, owner: state.owner, application: application.application_id,
+    getCapture: () => writing?.capture(), isDirty: () => state.dirty, notify});
+  disclosure.element.classList.add('application-writing');
+  $('main').append(disclosure.element);
   const ticket = gate.capture('history');
   const data = await api(workspace(`/applications/${application.application_id}/history`));
   if (!gate.current(ticket)) return;
@@ -335,7 +347,7 @@ function settings() {
   $('main').append(section('Writing preferences', form('Save explicit preferences', element => operation(() => api(workspace(), {method: 'PATCH', body: {expected_metadata_revision: revisions().metadata, writing_preferences: values(element).preferences}}), refreshAfter, element), field('preferences', 'Your preferred voice and writing style', {type: 'textarea', value: state.detail.profile.writing_preferences, maxLength: 10000}))));
   const consent = state.detail.consent;
   const purposes = ['research', 'drafting', 'assessment'];
-  $('main').append(section('Cloud purposes', text('This preview only records permission; it cannot launch cloud research or drafting. A key must be configured server-side, never in this page. Cloud transmission can incur charges and is not zero provider retention.'), form('Save explicit purpose decision', element => {
+  $('main').append(section('Cloud purposes', text('This preview records permission and can inspect selected-data disclosures; it cannot launch cloud research or drafting. A key must be configured server-side, never in this page. Cloud transmission can incur charges and is not zero provider retention. If later edit assessment is wanted, explicitly grant both drafting and assessment before generation. Assessment remains optional; adding it afterward stales existing drafts and requires fresh generation.'), form('Save explicit purpose decision', element => {
     const data = new FormData(element), selected = purposes.filter(purpose => data.has(purpose));
     if (!selected.length) return notify('Choose at least one purpose for this consent or revocation record.', true);
     operation(() => api(workspace('/consent'), {method: 'POST', body: {expected_consent_revision: revisions().consent, provider: 'openai', purposes: selected, granted: data.has('granted')}}), refreshAfter, element);
@@ -424,6 +436,7 @@ $('profile').onchange = event => {
   if (state.owner) localStorage.setItem('copilot-python-profile', state.owner); else localStorage.removeItem('copilot-python-profile');
   context(); notify('Selected profile scope changed. Previous profile content cleared.'); loadSelected();
 };
+$('main').addEventListener('input', invalidateDisclosureInput);
 window.addEventListener('hashchange', navigate);
 window.addEventListener('beforeunload', event => { if (state.dirty || writingRecovery.size) { event.preventDefault(); event.returnValue = ''; } });
 async function start() {

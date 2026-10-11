@@ -356,6 +356,10 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
     def workspace_packet_question(profile_id: str, application_id: str, batch_id: str, question_id: str):
         return packets.question(profile_id, application_id, batch_id, question_id)
 
+    @app.get('/api/workspace/profiles/{profile_id}/applications/{application_id}/drafting-state')
+    def workspace_drafting_state(profile_id: str, application_id: str):
+        return drafting.current_state(profile_id, application_id)
+
     draft_base = '/api/workspace/profiles/{profile_id}/applications/{application_id}/drafts'
 
     @app.post(draft_base + '/preview')

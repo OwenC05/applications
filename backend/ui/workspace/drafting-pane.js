@@ -31,11 +31,22 @@ export function writingWarning(question, value) {
 // Controls and editor nodes survive unrelated refreshes. Only an intentional
 // selection/adoption replaces the baseline; a save acknowledgement never does.
 export function draftingPane({api, exportText, owner, application, edits, notify = () => {}, confirmDiscard = globalThis.confirm,
-  keyFactory = () => crypto.randomUUID(), onPublished = () => {}, recovery = null, onHandoff = () => false}) {
+  keyFactory = () => crypto.randomUUID(), onPublished = () => {}, recovery = null, onHandoff = () => false, onCaptureChange = () => {}}) {
   let retired = false, inspection = null, buffer = null, saving = false, pending = null, savedChild = null, uncertain = false;
   let selectedDraft = '', selectedPacket = '', ownDirty = false, handedOff = false;
+  let epoch = 0, packetInspection = null, observer = onCaptureChange;
+  function capture() {
+    return {epoch, packetInspection: retired ? null : copy(packetInspection),
+      draftInspection: retired || uncertain || handedOff || savedChild || !buffer ? null : copy(inspection),
+      bufferMatchesSaved: !retired && buffer?.matchesSaved() === true,
+      saving, uncertain, quarantined: handedOff, retired};
+  }
+  function changed() {
+    epoch++;
+    try { observer?.(capture()); } catch { /* Inspection observers cannot interrupt local writing or privacy cleanup. */ }
+  }
   const controls = new Map();
-  const pane = section('Saved evidence and application writing', text('Local saved inspection, immutable editing and saved-text export only. No paid launch, reassessment, human review, autofill or submission controls are connected.', 'warning'));
+  const pane = section('Saved evidence and application writing', text('Local saved inspection, immutable editing and saved-text export. Read-only generation and saved-edit assessment disclosures are separate below; no paid launch, human review, autofill or submission is connected.', 'warning'));
   const packetStatus = text('Refresh to inspect saved packets.'), draftStatus = text('Refresh to inspect saved drafts.'), editStatus = text(''), exportStatus = text('');
   for (const status of [packetStatus, draftStatus, editStatus, exportStatus]) { status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); }
   const packetSelect = node('select'), questionSelect = node('select'), draftSelect = node('select');
@@ -94,6 +105,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     download.disabled = retired || saving || !selectedDraft;
     draftSelect.disabled = retired || saving || (!selectedDraft && draftSelect.children.length <= 1);
     handoff.disabled = retired || saving || !uncertain || handedOff || !pending || !buffer;
+    changed();
   }
   function assessmentNotice() {
     if (!inspection) return '';
@@ -207,11 +219,17 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     if (view === 'packet-list') setList(packetSelect, data.batches ?? [], item => item.batch.id, 'Choose saved packet batch', selectedPacket);
     if (view === 'draft-list') { setList(draftSelect, data.drafts ?? [], item => item.draft.id, 'Choose saved draft revision', selectedDraft); sync(); }
     if (view === 'packet-detail') {
+      if (data?.batch?.id !== selectedPacket || data.batch.profile_id !== owner || data.batch.application_id !== application) {
+        packetInspection = null; packetStatus.textContent = 'Packet inspection does not match the selected application batch.';
+        changed(); return;
+      }
+      packetInspection = copy(data);
       packetStatus.textContent = `Server-current at last inspection: ${data.current === true}. Semantic support: ${data.semantic_support}. Stored integrity is not semantic support.`;
       packetInfo.textContent = json({reasons: data.reason_codes, manual_requirements: data.batch.manual_requirements, hiring_criteria: data.batch.hiring_criteria, note: 'Criteria may be inferred employer priorities, not personal facts or hiring-manager knowledge.'});
       questionSelect.replaceChildren(option('', 'Choose canonical question'));
       for (const question of [...data.batch.canonical_questions, ...(data.batch.cover_letter_target ? [data.batch.cover_letter_target] : [])]) questionSelect.append(option(question.id, question.text));
       questionSelect.disabled = false;
+      changed();
     }
     if (view === 'packet-question') {
       questionInfo.replaceChildren(node('h3', data.question.text), node('pre', json(data.question)), text('Personal evidence, employer evidence, inference and gaps remain distinct. Stored excerpts/IDs are literal, not verified semantic support.'), node('h4', 'Personal evidence — confirmed-fact references'), node('pre', json(data.packet?.facts ?? [])), node('h4', 'Employer evidence — separate corpus'), node('pre', json(data.packet?.employer ?? [])), node('h4', 'Criteria / inferred priorities (IDs, not personal facts)'), node('pre', json(data.packet?.criteria ?? [])), node('h4', 'Gaps and omissions'), node('pre', json({gaps: data.packet?.gaps ?? [], omitted: data.packet?.omitted ?? [], truncated: data.packet?.truncated})), text('Manual requirement'), node('pre', json(data.manual_requirement)));
@@ -240,6 +258,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
   }});
   packetSelect.onchange = () => {
     selectedPacket = packetSelect.value; questionInfo.replaceChildren(); packetInfo.textContent = 'No packet loaded.';
+    packetInspection = null; changed();
     questionSelect.replaceChildren(); questionSelect.disabled = true; controller.packet(selectedPacket);
   };
   questionSelect.onchange = () => { questionInfo.replaceChildren(); controller.packetQuestion(selectedPacket, questionSelect.value); };
@@ -254,8 +273,9 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     controller.draft(selectedDraft); sync();
   };
   for (const select of [packetSelect, questionSelect, draftSelect]) select.disabled = true;
-  const packets = section('Saved question evidence', button('Refresh saved packet list', () => controller.packets()), labelled('Saved packet batch', packetSelect), packetStatus, packetInfo, labelled('Canonical packet question', questionSelect), questionInfo);
-  const drafts = section('Saved application writing', button('Refresh saved draft list', () => controller.drafts()), labelled('Saved draft revision', draftSelect), button('Refresh selected saved inspection', () => { if (selectedDraft) controller.draft(selectedDraft); }), draftStatus, draftInfo);
+  const packets = section('Saved question evidence', button('Refresh saved packet list', () => { packetInspection = null; changed(); controller.packets(); }), labelled('Saved packet batch', packetSelect),
+    button('Refresh selected packet inspection', () => { packetInspection = null; changed(); if (selectedPacket) controller.packet(selectedPacket); }), packetStatus, packetInfo, labelled('Canonical packet question', questionSelect), questionInfo);
+  const drafts = section('Saved application writing', button('Refresh saved draft list', () => controller.drafts()), labelled('Saved draft revision', draftSelect), button('Refresh selected saved inspection', () => { changed(); if (selectedDraft) controller.draft(selectedDraft); }), draftStatus, draftInfo);
   form.append(editor, editStatus, save, resolve, handoff, adopt, discardButton);
   drafts.append(form, download, exportStatus, savedPreview, ledger); pane.append(packets, drafts); sync();
   if (recovery !== null) {
@@ -287,7 +307,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     }
     sync();
   }
-  return {element: pane, get unresolved() { return saving || (uncertain && !handedOff); }, retire() {
+  return {element: pane, capture, get unresolved() { return saving || (uncertain && !handedOff); }, retire() {
     if (retired) return;
     retired = true; controller.retire();
     for (const {input, onInput} of controls.values()) {
@@ -295,6 +315,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     }
     controls.clear(); inspection = null; buffer = null; pending = null; savedChild = null; recovery = null;
     saving = false; uncertain = false; ownDirty = false; selectedDraft = ''; selectedPacket = '';
+    packetInspection = null; changed(); observer = null;
     edits.forget(form);
     // Clear detached controls and text as well as the visible subtree. A retained
     // old element must not expose prior-owner prose after successful forgetting.

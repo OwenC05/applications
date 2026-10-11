@@ -29,6 +29,49 @@ class DraftingService:
         self.provider = provider or Provider(self.jobs, lambda: os.environ.get('OPENAI_API_KEY', ''))
         self.packets = PacketService(store, jobs=self.jobs)
 
+    def current_state(self, owner, application_id):
+        """Capture current revisions and consent without initializing or writing state."""
+        with self.store._read() as db:
+            self.store._profile(db, owner)
+            # _get validates SQL scope but not its serialized association. Check
+            # both before Jobs.capture uses the application's revision counters.
+            row = db.execute('SELECT id,owner,data FROM records WHERE id=? AND kind=?',
+                             (application_id, 'workspace:application')).fetchone()
+            if row is None or row[1] != owner:
+                raise EvidenceError('NOT_FOUND', 'Workspace record not found', 404)
+            try:
+                application = c.ApplicationRecord.model_validate_json(row[2])
+            except ValueError:
+                conflict('Invalid retained application state')
+            if (row[0], row[1]) != (application.application_id, application.profile_id):
+                conflict('Application association changed')
+            try:
+                # Jobs.capture attaches raw SQL application counters with
+                # model_copy, so validate the complete vector at this boundary.
+                revisions = c.RevisionVector.model_validate(dict(self.jobs.capture(db, owner, application_id)))
+            except ValueError:
+                conflict('Invalid retained revision state')
+            rows = db.execute('SELECT id,owner,data FROM records WHERE owner=? AND kind=?',
+                              (owner, 'workspace:consent')).fetchall()
+            if len(rows) > 1:
+                conflict('Consent singleton is inconsistent')
+            summary = None
+            if rows:
+                try:
+                    consent = c.ConsentRecord.model_validate_json(rows[0][2])
+                except ValueError:
+                    conflict('Invalid retained consent state')
+                if ((rows[0][0], rows[0][1]) != (consent.id, consent.profile_id)
+                        or consent.profile_id != owner or consent.revision != revisions.consent
+                        or not consent.purposes or len(set(consent.purposes)) != len(consent.purposes)):
+                    conflict('Consent association or revision changed')
+                summary = dict(provider=consent.provider, purposes=list(consent.purposes),
+                               granted=consent.granted, revision=consent.revision)
+            elif revisions.consent != 0:
+                conflict('Consent revision has no retained consent')
+            return dict(schema_version=1, profile_id=owner, application_id=application_id,
+                        current_revisions=revisions.model_dump(mode='json'), consent=summary)
+
     def _capture(self, db, owner, application_id, request, *, expected=True):
         revisions = self.jobs.capture(db, owner, application_id)
         if expected and revisions != request.expected_revisions:
