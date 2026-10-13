@@ -10,6 +10,7 @@ import http.client
 import io
 import ipaddress
 import json
+import math
 import re
 import socket
 import ssl
@@ -376,3 +377,92 @@ def acquire(url: str, confirmed_hosts: list[str], budget: FetchBudget) -> Acquir
                 response.close()
             connection.close()
     raise FetchError('Redirect limit exceeded')
+
+
+@dataclass(frozen=True)
+class AcquiredGreenhouseJSON:
+    """Observed representations, not authenticated employer or job authority.
+
+    Originals are HTTP body bytes after transfer framing and before content
+    decoding, not socket/TLS wire bytes. Decoded bytes are never reserialized.
+    """
+    requested_url: str
+    final_url: str
+    acquired_at: str
+    media_type: str
+    content_encoding: str
+    original_bytes: bytes
+    original_sha256: str
+    decoded_json_bytes: bytes
+    decoded_json_sha256: str
+
+
+def acquire_greenhouse_json(
+    url: str, confirmed_hosts: list[str], budget: FetchBudget,
+) -> AcquiredGreenhouseJSON:
+    """Unused fixed detail GET; no redirects, credentials, retries or sniffing."""
+    return _acquire_greenhouse_json_until(url, confirmed_hosts, budget, time.monotonic() + 15)
+
+
+def _acquire_greenhouse_json_until(url, confirmed_hosts, budget, deadline_cap):
+    from .greenhouse import MAX_BYTES as JSON_MAX_BYTES
+    from .greenhouse import MAX_INTEGER
+
+    transport_start = time.monotonic()
+    if type(deadline_cap) not in (int, float) or not math.isfinite(deadline_cap):
+        raise FetchError('Invalid acquisition deadline cap')
+    deadline = min(deadline_cap, transport_start + 15, budget.started + budget.run_seconds)
+    # Bound the raw container before normalization, including duplicate entries.
+    if (type(confirmed_hosts) is not list or not 1 <= len(confirmed_hosts) <= 20
+            or any(type(host) is not str or not 1 <= len(host) <= 253
+                   or not host.isascii() for host in confirmed_hosts)):
+        raise FetchError('Confirm a bounded exact host allowlist')
+    hosts = {_host(host) for host in confirmed_hosts}
+    match = (re.fullmatch(
+        r'https://boards-api\.greenhouse\.io/v1/boards/[A-Za-z0-9_-]{1,100}/jobs/([1-9][0-9]{0,18})',
+        url) if type(url) is str else None)
+    if match is None or int(match.group(1)) > MAX_INTEGER:
+        raise FetchError('Only the exact Greenhouse detail endpoint is supported')
+    requested, host, target = validate_url(url, hosts)
+    _remaining(deadline)
+    budget.reserve()
+    addresses = _resolve(host, deadline)
+    if (type(addresses) is not list or not 1 <= len(addresses) <= 64
+            or any(type(address) is not str for address in addresses)):
+        raise FetchError('No bounded public address set')
+    addresses = [_public_ip(address) for address in addresses]
+    _remaining(deadline)
+    connection = _PinnedHTTPS(host, addresses[0], deadline)
+    response = None
+    try:
+        connection.request('GET', target, headers={
+            'Host': host, 'User-Agent': 'ApplicationCopilot-StaticResearch/1',
+            'Accept': 'application/json', 'Accept-Encoding': 'gzip,deflate',
+            'Connection': 'close',
+        })
+        response = connection.getresponse()
+        if response.status != 200:
+            raise FetchError('Greenhouse detail unavailable; redirects are not followed')
+        media_headers = [value for name, value in response.getheaders()
+                         if name.lower() == 'content-type']
+        if (len(media_headers) != 1 or not re.fullmatch(
+                r'[ \t]*application/json[ \t]*(?:;[ \t]*charset[ \t]*=[ \t]*(?:utf-8|"utf-8")[ \t]*)?',
+                media_headers[0], re.IGNORECASE)):
+            raise FetchError('Unsupported or ambiguous Greenhouse JSON media type')
+        raw, decoded, encoding = _body(response, deadline, budget)
+        if not 0 < len(decoded) <= JSON_MAX_BYTES:
+            raise FetchError('Greenhouse JSON byte limit exceeded')
+        result = AcquiredGreenhouseJSON(
+            requested, requested, datetime.now(UTC).isoformat(), 'application/json',
+            encoding, raw, hashlib.sha256(raw).hexdigest(), decoded,
+            hashlib.sha256(decoded).hexdigest())
+    except (OSError, http.client.HTTPException, UnicodeError):
+        raise FetchError('Verified HTTPS acquisition failed') from None
+    finally:
+        try:
+            if response is not None:
+                response.close()
+        finally:
+            connection.close()
+    _remaining(deadline)
+    return result
