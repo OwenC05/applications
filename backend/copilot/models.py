@@ -166,14 +166,25 @@ class LocalModels:
                                                     show_progress_bar=False, batch_size=8)]
 
 
-def main() -> None:
+def main(*, setup_function=None) -> None:
     parser = argparse.ArgumentParser(description="Explicit pinned public model download")
     parser.add_argument("command", choices=["setup"])
     from copilot.config import Settings
-    parser.add_argument("--directory", type=Path, default=Settings.from_env().model_dir)
+    parser.add_argument("--directory", type=Path)
     args = parser.parse_args()
-    setup(args.directory)
-    print("Pinned local models provisioned and file hashes recorded.")
+    try:
+        directory = (args.directory or Settings.from_env().model_dir).resolve()
+    except Exception:
+        print(json.dumps({'error': {'code': 'INDEX_NOT_READY',
+            'message': 'Start the evidence service through the supported isolated launcher.'}}))
+        raise SystemExit(1) from None
+    if setup_function is not None:
+        setup_function(directory)
+        print("Pinned local models provisioned and file hashes recorded.")
+        return
+    from .process_boundary import launch
+    raise SystemExit(launch({'schema_version': 1, 'kind': 'models_setup',
+                             'directory': str(directory)}))
 
 
 if __name__ == "__main__":

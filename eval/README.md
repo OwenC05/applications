@@ -59,30 +59,39 @@ PYTHONPATH=backend uv run --no-sync --project backend python eval/application_ru
 PYTHONPATH=backend uv run --no-sync --project backend python -m unittest discover -s eval -p 'test_*.py'
 ```
 
-The `--offline` CLI now starts a fresh isolated Python worker in an empty temporary
-working directory, with explicit repository import paths and an allowlisted
-OS-only environment. It does not inherit caller `.env`, `PYTHONPATH`, Chroma,
-proxy, credential or provider settings. Model-library offline switches are forced;
-Chroma uses explicit local Rust persistent settings with anonymized telemetry off.
-Dataset, model and output paths are resolved before the worker changes directory.
-The parent never imports Chroma or model libraries, and worker failure propagates
-without a success report. This is a configuration-isolation boundary, not an OS
-network sandbox; regression tests deny sockets while exercising real local Chroma
-with synthetic model doubles. No model-quality qualification follows from them.
+The `--offline` CLI uses the shared verified SDK launch boundary: a fresh isolated
+Python child with explicit repository import paths, an empty owned lifetime CWD
+and an allowlisted OS-only environment. It does not inherit caller `PYTHONPATH`,
+Chroma, proxy, credential or provider settings; model-library offline switches are
+forced. Chroma uses explicit local Rust persistent settings with telemetry off.
+Dataset, model and report paths resolve in the caller before launch. The parent
+does not import Chroma/model libraries. This is configuration isolation, not an OS
+network sandbox or model-quality certification.
 
-On POSIX, parent-only `SIGTERM` and Python interruption unwind through exact-owned
-child termination and reaping before removing the parent worker directory. Worker
-data/index temporary roots are nested beneath that directory, so abrupt child
-termination cannot leave them outside the parent's cleanup scope. An unresponsive
-child is killed after a five-second termination grace period; no process-group
-kill is used. The temporary parent `SIGTERM` handler is restored after cleanup.
-`SIGKILL`, host crashes, and Windows termination are outside this POSIX guarantee.
+Evaluation data/indexes live in a **separate parent-created owned workspace**,
+outside the lifetime CWD and disjoint from approved model/dataset/output paths.
+After exact child reaping and group-quiescence proof, only that verified workspace
+is recursively cleaned using descriptor-relative, symlink- and mount-aware
+operations. The empty lifetime CWD is removed with `rmdir` only. Unexpected identity,
+contents or uncertain termination retain the affected roots with a safe warning.
+Explicit report output is never a cleanup target.
 
-The low-level `run(cases, root, models)` hook is for controlled isolated test
-processes only, not a concurrent service entry point: callers must supply a clean
-environment and a cwd without `.env` **before** importing runtime libraries. It
-fails closed on cwd `.env` or ambient `CHROMA_*`; it never changes global cwd/env.
-Use the CLI for the supported offline boundary.
+On POSIX, SIGINT/SIGTERM request termination of the exact new-session child group;
+application evaluation forwards SIGTERM for either interruption, preserving parent
+exit 130/143. It retains a five-second termination grace, then KILL and a
+single bounded one-second reaping budget; parent-directed exits map to 130/143.
+Prior parent handlers are restored. Regression tests cover graceful and forced
+termination, separate workspace placement, no late report, reaping before both
+roots disappear and preservation of foreign sibling canaries. Parent SIGKILL,
+host crashes and native Windows are outside this guarantee. A cleanup warning
+following completed work does not imply rollback or an automatic retry.
+
+The low-level `run(cases, root, models)` hook now requires an already verified SDK
+child boundary as well as its existing clean/offline configuration checks. An
+arbitrary process with a missing `.env` is not eligible; no temporary global
+CWD/environment mutation or unsafe embedding flag is provided. Use the CLI for
+the supported offline boundary. Direct pytest/tool collection remains responsible
+for its own controlled import CWD.
 
 The historical first real-model **tune-only** run (before this isolation repair)
 measured 30 cases and 192 canonical citation

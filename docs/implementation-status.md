@@ -513,12 +513,46 @@ not claimed to be non-root or capability-drop-all. This proves that snapshot's
 bounded startup/persistence, not current-workflow model provisioning, full retrieval,
 backup/restore, friend installation, complete S7 or release readiness.
 
-### Separate SDK environment-isolation issue — repair pending
+### SDK launch isolation — focused verified increment
 
-A synthetic owned-directory probe confirmed that Chroma 1.5.9's Pydantic settings
-can read a working-directory `.env` despite `PYTHON_DOTENV_DISABLED=1`; that flag
-does not disable `dotenv_values`. Prior verification used owned empty import
-directories, which remained the actual privacy barrier. No real private `.env`,
-provider credentials or user documents were read. Production CLI/SDK isolation
-requires a separately reviewed repair before private-data/friend release; the
-writing-review component and Docker snapshot tests do not close this issue.
+The synthetic Chroma 1.5.9 dotenv-read regression is repaired for supported Linux,
+WSL and Linux-container launchers. A stdlib-only parent creates a verified empty
+0700 lifetime SDK CWD, transfers a closed non-secret command through inherited
+FDs, and runs a fresh isolated Python child. Paths retain caller-relative meaning;
+production environment inheritance and deferred cloud-key access are unchanged.
+Default SDK embedding denies before import, and default CLI dispatch guards before
+Store/job mutations. Explicit injected factories remain supported. Individual
+Chroma settings also use `_env_file=None`; the dotenv-disable flag alone is not
+claimed to protect imports. Evaluation storage is a separately parent-owned
+workspace, never the lifetime CWD or an overlapping caller input/output path.
+
+Fresh frozen-source verification passed **237 focused regressions** across 12
+files, including four actual API/controller writing-review cases, plus **five
+actual-SDK tests**. Two unchanged real-model retrieval tests were explicitly
+deselected; this is not a full backend-suite or model-quality run. The seven public
+wrappers were exercised from direct-hostile and nested-ancestor caller fixtures,
+with parent/child dotenv-open observations and real pinned SDK imports/defaults;
+expensive command bodies in that matrix were explicitly injected. Separate probes
+exercised unmodified Chroma, later settings, a persistent client and the production
+HTTP-client factory against an owned local Chroma server. GREEN observed no canary
+opens; positive controls detected the original reads. Independent code and
+architecture reviews closed the concrete findings. Ruff and syntax checks passed;
+no typecheck claim is made.
+
+A fresh allowlisted **85-file** Docker context built locked app/worker images and
+passed actual startup, private Chroma heartbeat, loopback-only publication and
+synthetic tech/finance-profile persistence across exact stop/start. App/worker SDK
+children used empty 0700 roots owned by UID 10001, with held-FD/path identity and
+new-session process groups. Both parents exited 143 on graceful TERM; old roots
+were absent after restart. Exact owned containers, three volumes and network were
+removed and absence verified. Earlier tool-only PowerShell array-serialization
+and native-argument diagnostic failures remain preserved, not recast as passes;
+a fresh clean smoke followed their corrections. No product change hid them.
+
+Bounded shutdown can forcibly interrupt standalone work; existing unfinished-job,
+fence, consent and uncertain-accounting rules remain authoritative. No provider,
+worker lease, data schema, model pin, dependency or UI behavior was changed. This
+closes the narrow SDK launch issue, not full S6/S7, semantic quality, a complete
+Docker retrieval/drafting workflow, restore, two-friend installation, browser
+filling/submission or private/friend release readiness. No actual private dotenv,
+credentials or applicant documents were read during qualification.

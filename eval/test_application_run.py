@@ -51,7 +51,7 @@ assert application_run.metrics(['a'], ['a'])['recall_at_8'] == 1
         with tempfile.TemporaryDirectory() as temp:
             Path(temp, '.env').write_text('CHROMA_API_IMPL=chromadb.api.fastapi.FastAPI\n')
             result = subprocess.run([sys.executable, '-c', textwrap.dedent(code)],
-                                    cwd=temp, env={**os.environ, 'PYTHONPATH': str(Path(__file__).parent.resolve())},
+                                    cwd=temp, env={**os.environ, 'PYTHONPATH': os.pathsep.join([str(Path(__file__).parent.resolve()), str(Path(__file__).resolve().parents[1] / 'backend')])},
                                     capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -61,8 +61,8 @@ import sys
 from application_run import run
 try:
     run([], __import__('pathlib').Path('.'), None)
-except RuntimeError as error:
-    assert 'isolated' in str(error)
+except Exception as error:
+    assert getattr(error, 'code', None) == 'INDEX_NOT_READY'
 else:
     raise AssertionError('ambient transport was accepted')
 assert 'chromadb' not in sys.modules
@@ -70,7 +70,7 @@ assert 'chromadb' not in sys.modules
         with tempfile.TemporaryDirectory() as temp:
             result = subprocess.run([sys.executable, '-c', textwrap.dedent(code)], cwd=temp,
                 env={**os.environ, 'CHROMA_API_IMPL': 'chromadb.api.fastapi.FastAPI',
-                     'PYTHONPATH': str(Path(__file__).parent.resolve())}, capture_output=True, text=True, check=False)
+                     'PYTHONPATH': os.pathsep.join([str(Path(__file__).parent.resolve()), str(Path(__file__).resolve().parents[1] / 'backend')])}, capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_run_rejects_cwd_dotenv_without_importing_chroma(self):
@@ -82,8 +82,8 @@ from pathlib import Path
 from application_run import run
 try:
     run([], Path('.'), None)
-except RuntimeError as error:
-    assert 'isolated' in str(error)
+except Exception as error:
+    assert getattr(error, 'code', None) == 'INDEX_NOT_READY'
 else:
     raise AssertionError('dotenv cwd accepted')
 assert 'chromadb' not in sys.modules
@@ -99,7 +99,7 @@ assert 'chromadb' not in sys.modules
                 '--offline', '--output', str(output)], cwd=temp, env={'PATH': os.environ.get('PATH', '')},
                 capture_output=True, text=True, check=False)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn('Only the exact frozen synthetic dataset is accepted', result.stderr)
+            self.assertIn('INDEX_NOT_READY', result.stderr)
             self.assertEqual(result.stdout, '')
             self.assertFalse(output.exists())
 
@@ -157,10 +157,27 @@ assert 'chromadb' not in sys.modules
     def test_injected_models_real_indexes_use_only_owned_confirmed_wording(self):
         with tempfile.TemporaryDirectory() as temp:
             self._subprocess_assertions(temp, """
+import subprocess
+from copilot import process_boundary as boundary
+original = subprocess.Popen
+injected = '''
+import application_run
 from test_application_run import ApplicationRunnerTests
-case = ApplicationRunnerTests()
-case.setUp()
-case._assert_owned_wording()
+def worker(command, workspace):
+    case = ApplicationRunnerTests()
+    case.setUp()
+    case._assert_owned_wording(workspace)
+application_run._worker_main = worker
+'''
+def spawn(command, **kwargs):
+    command[3] = command[3].replace('from copilot.process_boundary import _child_entry;',
+        injected + '\\nfrom copilot.process_boundary import _child_entry;')
+    return original(command, **kwargs)
+boundary.subprocess.Popen = spawn
+from pathlib import Path
+assert boundary.launch({'schema_version': 1, 'kind': 'application_eval',
+    'dataset': str(Path('unused').resolve()), 'models': str(Path('unused').resolve()),
+    'output': str(Path('unused').resolve()), 'offline': True, 'seed': 17, 'split': 'tune'}) == 0
 """)
 
     def _subprocess_assertions(self, cwd, code, env=None):
@@ -196,16 +213,6 @@ socket.getaddrinfo = deny
 import copilot.models
 from test_application_run import SyntheticModels
 copilot.models.LocalModels = lambda directory: SyntheticModels()
-import chromadb
-original_client = chromadb.PersistentClient
-def local_client(*args, **kwargs):
-    settings = kwargs['settings']
-    assert settings.chroma_api_impl == 'chromadb.api.rust.RustBindingsAPI'
-    assert settings.anonymized_telemetry is False
-    client = original_client(*args, **kwargs)
-    assert client.get_settings().chroma_api_impl == 'chromadb.api.rust.RustBindingsAPI'
-    return client
-chromadb.PersistentClient = local_client
 import application_run
 original_load = application_run.load_cases
 application_run.load_cases = lambda path: original_load(path)[:1]
@@ -215,13 +222,16 @@ def checked_popen(command, **kwargs):
     assert set(kwargs['env']) <= {'PATH', 'SYSTEMROOT', 'WINDIR', 'SYSTEMDRIVE',
         'HF_HUB_OFFLINE', 'TRANSFORMERS_OFFLINE', 'HF_HUB_DISABLE_TELEMETRY', 'ANONYMIZED_TELEMETRY'}
     assert not pathlib.Path(kwargs['cwd'], '.env').exists()
-    command[3] = command[3].replace('from application_run import _worker_main;',
-                                  injected + '\\nfrom application_run import _worker_main;')
+    command[3] = command[3].replace('from copilot.process_boundary import _child_entry;',
+                                  injected + '\\nfrom copilot.process_boundary import _child_entry;')
     return real_popen(command, **kwargs)
 subprocess.Popen = checked_popen
 sys.argv = ['application_run.py', '--dataset', DATASET, '--models', 'absent-models',
             '--offline', '--output', OUTPUT]
-application_run.main()
+try:
+    application_run.main()
+except SystemExit as error:
+    assert error.code == 0
 """.replace('DATASET', repr(str(repo / 'eval/applications-frozen.jsonl'))).replace('OUTPUT', repr(str(output)))
             self._subprocess_assertions(temp, code, {'PATH': os.environ.get('PATH', ''),
                 'CHROMA_API_IMPL': 'chromadb.api.fastapi.FastAPI',
@@ -233,135 +243,64 @@ application_run.main()
             self.assertGreater(report['results'][0]['citation_integrity_checked'], 0)
 
     @unittest.skipUnless(os.name == 'posix', 'POSIX SIGTERM lifecycle')
-    def test_handler_restored_after_success_launch_failure_and_launch_sigterm(self):
-        with tempfile.TemporaryDirectory() as temp:
-            self._subprocess_assertions(temp, """
-import pathlib, signal, sys
-from unittest.mock import patch
-import application_run
-previous = signal.getsignal(signal.SIGTERM)
-sys.argv = ['application_run.py', '--dataset', 'unused', '--models', 'unused',
-            '--offline', '--output', 'unused']
-for mode in ('success', 'launch_failure', 'launch_sigterm'):
-    roots = []
-    class Child:
-        args = ['synthetic']
-        terminated = False
-        def wait(self, timeout=None):
-            return 0
-        def poll(self):
-            return None if mode == 'launch_sigterm' and not self.terminated else 0
-        def terminate(self):
-            self.terminated = True
-    child = Child()
-    def launch(*args, **kwargs):
-        roots.append(pathlib.Path(kwargs['cwd']))
-        if mode == 'launch_failure':
-            raise OSError('synthetic launch failure')
-        if mode == 'launch_sigterm':
-            # TERM while Popen has not returned must not lose child ownership.
-            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+    def test_parent_sigterm_reaps_child_before_separate_workspace_cleanup(self):
+        for forced in (False, True):
+            with tempfile.TemporaryDirectory() as temp:
+                ready = Path(temp, 'ready.json')
+                output = Path(temp, 'never-published.json')
+                foreign = Path(temp, 'foreign-sibling')
+                foreign.write_text('owned foreign sibling')
+                injected = f"""
+    import json, os, pathlib, signal, time
+    import application_run
+    def run(cases, root, models, seed):
+        if {forced!r}: signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        root.joinpath('owned-storage').write_text('owned synthetic storage')
+        pathlib.Path({str(ready)!r}).write_text(json.dumps({{'pid': os.getpid(), 'cwd': os.getcwd(),
+            'workspace': str(root), 'cwd_entries': os.listdir('.')}}))
+        while True: time.sleep(0.02)
+    application_run.run = run
+    """
+                injected = textwrap.dedent(injected)
+                code = f"""
+    import json, os, pathlib, signal, subprocess, sys, threading, time
+    import application_run
+    from copilot import process_boundary as boundary
+    boundary._GRACE['application_eval'] = 0.1 if {forced!r} else 5
+    original = subprocess.Popen
+    children = []
+    handlers = {{n: signal.getsignal(n) for n in (signal.SIGINT, signal.SIGTERM)}}
+    def spawn(command, **kwargs):
+        command[3] = command[3].replace('from copilot.process_boundary import _child_entry;',
+            {injected!r} + '\\nfrom copilot.process_boundary import _child_entry;')
+        child = original(command, **kwargs)
+        children.append(child)
         return child
-    with patch.object(application_run.subprocess, 'Popen', launch):
-        try:
-            application_run.main()
-        except OSError:
-            assert mode == 'launch_failure'
-        except SystemExit as error:
-            assert mode == 'launch_sigterm' and error.code == 143
-        else:
-            assert mode == 'success'
-    assert signal.getsignal(signal.SIGTERM) == previous
-    assert roots and all(not root.exists() for root in roots)
-    if mode == 'launch_sigterm':
-        assert child.terminated
-""")
+    boundary.subprocess.Popen = spawn
+    def interrupt():
+        deadline = time.monotonic() + 10
+        while not pathlib.Path({str(ready)!r}).exists() and time.monotonic() < deadline: time.sleep(0.02)
+        if pathlib.Path({str(ready)!r}).exists(): os.kill(os.getpid(), signal.SIGTERM)
+    threading.Thread(target=interrupt, daemon=True).start()
+    sys.argv = ['application_run.py', '--dataset', {str(Path(__file__).with_name('applications-frozen.jsonl'))!r},
+        '--models', 'unused', '--offline', '--output', {str(output)!r}]
+    try: application_run.main()
+    except SystemExit as error: assert error.code == 143
+    info = json.loads(pathlib.Path({str(ready)!r}).read_text())
+    assert not pathlib.Path(info['cwd']).exists()
+    assert not pathlib.Path(info['workspace']).exists()
+    assert info['cwd_entries'] == []
+    assert not pathlib.Path(info['workspace']).is_relative_to(info['cwd'])
+    assert not pathlib.Path({str(output)!r}).exists()
+    assert pathlib.Path({str(foreign)!r}).read_text() == 'owned foreign sibling'
+    assert {{n: signal.getsignal(n) for n in handlers}} == handlers
+    try: os.waitpid(children[0].pid, os.WNOHANG)
+    except ChildProcessError: pass
+    else: raise AssertionError('child not reaped')
+    """
+                self._subprocess_assertions(temp, code)
 
-    @unittest.skipUnless(os.name == 'posix', 'POSIX SIGTERM lifecycle')
-    def test_parent_sigterm_reaps_child_and_removes_nested_storage(self):
-        import shutil
-        import signal
-        import time
-
-        repo = Path(__file__).resolve().parents[1]
-        with tempfile.TemporaryDirectory() as temp:
-            ready = Path(temp, 'ready.json')
-            cleanup = Path(temp, 'cleanup.json')
-            output = Path(temp, 'late-report.json')
-            injected = f'''
-import os, pathlib, time
-import copilot.models
-copilot.models.LocalModels = lambda path: None
-import application_run
-def synthetic_run(cases, root, models, seed):
-    nested = root / 'canary'
-    nested.write_text('owned storage')
-    pathlib.Path({str(ready)!r}).write_text(__import__('json').dumps(
-        dict(pid=os.getpid(), cwd=os.getcwd(), nested=str(nested))))
-    time.sleep(1.5)
-    return {{'summary': {{'release_qualified': False}}}}
-application_run.run = synthetic_run
-'''
-            code = f'''
-import json, os, signal, subprocess, sys
-import application_run
-original = subprocess.Popen
-children = []
-previous = signal.getsignal(signal.SIGTERM)
-def tracked_popen(command, **kwargs):
-    command[3] = command[3].replace('from application_run import _worker_main;',
-        {injected!r} + '\\nfrom application_run import _worker_main;')
-    child = original(command, **kwargs)
-    children.append(child)
-    return child
-subprocess.Popen = tracked_popen
-sys.argv = ['application_run.py', '--dataset', {str(repo / 'eval/applications-frozen.jsonl')!r},
-    '--models', 'absent-models', '--offline', '--output', {str(output)!r}]
-try:
-    application_run.main()
-finally:
-    reaped = False
-    if children:
-        try:
-            os.waitpid(children[0].pid, os.WNOHANG)
-        except ChildProcessError:
-            reaped = True
-    __import__('pathlib').Path({str(cleanup)!r}).write_text(json.dumps(dict(
-        reaped=reaped, restored=signal.getsignal(signal.SIGTERM) == previous)))
-'''
-            bootstrap = f'import sys; sys.path[:0] = {[str(repo / "eval"), str(repo / "backend")]!r}; '
-            parent = subprocess.Popen([sys.executable, '-I', '-c', bootstrap + code],
-                                      cwd=temp, env={'PATH': os.environ.get('PATH', '')},
-                                      stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-            info = None
-            try:
-                deadline = time.monotonic() + 10
-                while not ready.exists() and parent.poll() is None and time.monotonic() < deadline:
-                    time.sleep(0.02)
-                self.assertTrue(ready.exists(), 'child never reached ready handshake')
-                info = json.loads(ready.read_text())
-                parent.send_signal(signal.SIGTERM)
-                _, stderr = parent.communicate(timeout=10)
-                time.sleep(1.7)  # A leaked child would now publish its late report.
-                self.assertFalse(output.exists(), 'child survived parent termination')
-                self.assertFalse(Path(info['cwd']).exists(), 'parent worker cwd leaked')
-                self.assertFalse(Path(info['nested']).exists(), 'nested storage leaked')
-                self.assertTrue(Path(info['nested']).is_relative_to(Path(info['cwd'])))
-                self.assertEqual(parent.returncode, 128 + signal.SIGTERM, stderr)
-                self.assertEqual(json.loads(cleanup.read_text()), {'reaped': True, 'restored': True})
-            finally:
-                if parent.poll() is None:
-                    parent.kill()
-                    parent.communicate()
-                if info:
-                    try:
-                        os.kill(info['pid'], signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    shutil.rmtree(info['cwd'], ignore_errors=True)
-                    shutil.rmtree(str(Path(info['nested']).parent), ignore_errors=True)
-
-    def _assert_owned_wording(self):
+    def _assert_owned_wording(self, root):
         from application_run import run
 
         case = copy.deepcopy(self.cases[0])
@@ -369,8 +308,7 @@ finally:
         case['category'] = 'MODELCATEGORYCANARY'
         case['pending_proposals'] = [{'text': 'UNCONFIRMEDCANARY'}]
         models = SyntheticModels()
-        with tempfile.TemporaryDirectory() as root:
-            report = run([case], Path(root), models)
+        report = run([case], Path(root), models)
         observed = '\n'.join(models.observed)
         for canary in ('MODELGOLDCANARY', 'MODELCATEGORYCANARY', 'UNCONFIRMEDCANARY'):
             self.assertNotIn(canary, observed)

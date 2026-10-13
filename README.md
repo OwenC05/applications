@@ -2,7 +2,7 @@
 
 A private, local-first internship application workspace for **technology and finance**. Includes the preserved dependency-free Node.js MVP and a separate Python/FastAPI evidence workbench.
 
-**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python also has reviewed profile/interview/proposal/application data APIs, an explicit legacy importer and an isolated workspace preview. Durable workers handle indexing and bounded static company/role research with original-source inspection through the API. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; an isolated S5 snapshot passed startup/restart persistence, while current-workflow and restore qualification remain open. Python now connects stored per-question packets to consent-gated, durable 3/5-call drafting through API routes, with exact-text evidence assessment and blocked-output inspection. The workspace adds saved packet/draft inspection, local immutable writing edits and saved-text export; explicit paid generation/saved-edit assessment controls are connected with retained-request recovery. Exact local writing review is connected through the API and workspace preview; semantic quality qualification and supervised browser filling/submission remain unfinished. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
+**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python also has reviewed profile/interview/proposal/application data APIs, an explicit legacy importer and an isolated workspace preview. Durable workers handle indexing and bounded static company/role research with original-source inspection through the API. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; its SDK launch isolation passed focused real-SDK and Docker startup/shutdown checks, while full-workflow and restore qualification remain open. Python now connects stored per-question packets to consent-gated, durable 3/5-call drafting through API routes, with exact-text evidence assessment and blocked-output inspection. The workspace adds saved packet/draft inspection, local immutable writing edits and saved-text export; explicit paid generation/saved-edit assessment controls are connected with retained-request recovery. Exact local writing review is connected through the API and workspace preview; semantic quality qualification and supervised browser filling/submission remain unfinished. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
 
 Generation and reassessment API enqueue require an explicit captured drafting
 admission revision as well as the unchanged request/disclosure. A durable consumed
@@ -212,7 +212,7 @@ The daemon emits bounded, content-free outcome changes to stderr. `--once` emits
 
 ### Python development / verification
 
-Python **3.12** and [uv](https://docs.astral.sh/uv/) are required. The lock uses Linux x86-64 CPU Torch, not CUDA; macOS/Windows-native Python are not verified targets. Windows users use Linux Docker/WSL. There is no automatic legacy `.data` import. The Chroma dependency currently can read a working-directory `.env`; use a clean directory without that file until the SDK isolation repair below is complete. The commands below execute Python from `backend`, which must contain no `.env`.
+Python **3.12** and [uv](https://docs.astral.sh/uv/) are required. The lock uses Linux x86-64 CPU Torch, not CUDA; macOS/Windows-native Python are not verified targets. Windows users use Linux Docker/WSL. There is no automatic legacy `.data` import. Supported Python application/model/evaluation CLIs now establish the [SDK launch boundary](#python-sdk-launch-boundary) before SDK imports. Direct test collection still imports Chroma itself: run tests from a controlled directory without `.env` (including `backend` for the command below); the CLI boundary does not wrap pytest or arbitrary external tools.
 
 ```sh
 uv sync --project backend --locked
@@ -266,11 +266,35 @@ and inspection make no paid calls or key lookups. Reservation estimates use
 conservative UTF-8 input bytes plus output ceilings, **not exact tokens or prices**.
 See [the Python drafting API](API.md#python-drafting-generation-preview).
 
-**Runtime privacy caveat:** Chroma 1.5.9 can independently read a `.env` in its
-working directory, even with `PYTHON_DOTENV_DISABLED=1`. Until the separate SDK
-isolation repair is complete, run Python only from a clean directory without
-such a file, never the legacy Node `.env` directory. Synthetic tests used owned
-empty working directories; no actual private `.env` was read during verification.
+### Python SDK launch boundary
+
+Chroma 1.5.9 can read a working-directory `.env` despite
+`PYTHON_DOTENV_DISABLED=1`; that flag is not a privacy barrier. Supported
+`python -m copilot` commands, model setup and both evaluation CLIs instead launch
+an isolated Python child in a fresh owned, empty mode-0700 `/tmp` directory and
+retain it through shutdown. The parent keeps its caller CWD; approved data/model
+and evaluation input/output paths are made absolute first. Default SDK service
+creation outside this verified launch fails with `INDEX_NOT_READY` before SDK
+import; injected test/service factories remain supported. Arbitrary default
+ASGI/library embedding is not a supported replacement launcher.
+
+Production OS environment inheritance is unchanged. Provider credentials remain
+late-loaded only for authorized cloud work; the application evaluator keeps its
+stricter offline allowlist. This prevents Chroma's implicit caller-dotenv reads,
+not arbitrary filesystem access, malicious same-UID code or every other library's
+configuration loading. Qualification used only owned synthetic canaries; no actual
+private `.env`, provider credentials or user documents were read.
+
+On SIGINT/SIGTERM the parent signals its exact child group (application evaluation
+forwards SIGTERM for either interruption). Serve has an
+8-second grace, other production commands 58 seconds, and application evaluation
+5 seconds, followed by at most one second for reaping after KILL. These are new
+bounded standalone shutdown policies: interrupted work may remain unfinished or
+uncertain under existing durable recovery/accounting rules; no paid operation is
+automatically replayed. Cleanup follows proved termination and ownership. If proof
+or cleanup fails, roots are retained with a safe warning; a cleanup warning after
+success does not roll back the operation or request a retry. Parent SIGKILL/host
+crashes can leave orphans; no broad automatic temporary-directory sweeping occurs.
 
 This is bounded generation/publication and local editing, **not completed S5 or a qualified release**.
 Unsupported claims, missing required answers and exceeded limits remain visible.

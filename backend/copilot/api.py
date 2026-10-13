@@ -90,6 +90,8 @@ class CitationInput(Input):
 
 
 def make_service(store, settings):
+    from .process_boundary import require_sdk_boundary
+    require_sdk_boundary()
     import chromadb
     from chromadb.config import Settings as ChromaSettings
 
@@ -98,7 +100,7 @@ def make_service(store, settings):
     from .retrieval.service import EvidenceService
 
     client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port,
-                                settings=ChromaSettings(anonymized_telemetry=False))
+                                settings=ChromaSettings(_env_file=None, anonymized_telemetry=False))
     return EvidenceService(store, settings.data_dir / "indexes", DenseIndex(client),
                            LocalModels(settings.model_dir))
 

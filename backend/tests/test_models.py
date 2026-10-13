@@ -54,9 +54,8 @@ def test_setup_default_directory_matches_api_without_download(tmp_path, monkeypa
         monkeypatch.setenv("COPILOT_DATA_DIR", str(tmp_path / "custom-data"))
         monkeypatch.setenv("COPILOT_MODEL_DIR", str(tmp_path / "custom-models"))
     captured = []
-    monkeypatch.setattr(models, "setup", captured.append)
     monkeypatch.setattr(sys, "argv", ["copilot.models", "setup"])
-    models.main()
+    models.main(setup_function=captured.append)
     assert captured == [Settings.from_env().model_dir]
 
 

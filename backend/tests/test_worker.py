@@ -223,6 +223,7 @@ def test_actual_http_parser_barrier_is_responsive_and_deleted_owner_cannot_publi
     import uvicorn
 
     import copilot.api as api
+
     listener = socket.socket()
     listener.bind(('127.0.0.1', 0))
     port = listener.getsockname()[1]
@@ -286,8 +287,8 @@ def test_cli_index_uses_real_durable_worker_and_published_stage(tmp_path, monkey
     import json
     import sys
 
-    import copilot.api as api
-    from copilot.__main__ import main
+    from copilot.__main__ import _dispatch
+    from copilot.process_boundary import settings_command
     from copilot.store import Store
     settings = Settings(tmp_path / 'data', tmp_path / 'models')
     store = Store(settings.data_dir)
@@ -295,10 +296,10 @@ def test_cli_index_uses_real_durable_worker_and_published_stage(tmp_path, monkey
     store.confirm_fact(owner, 'Python evidence')
     dense = DenseIndex(chromadb.PersistentClient(path=str(tmp_path / 'chroma')))
     monkeypatch.setattr(Settings, 'from_env', classmethod(lambda _cls: settings))
-    monkeypatch.setattr(api, 'make_service', lambda selected, _settings:
-        EvidenceService(selected, tmp_path / 'index', dense, FixtureModels()))
+    def factory(selected, _settings):
+        return EvidenceService(selected, tmp_path / 'index', dense, FixtureModels())
     monkeypatch.setattr(sys, 'argv', ['copilot', 'index', '--profile', owner, '--corpus', 'facts'])
-    main()
+    _dispatch(settings_command('index', settings, profile=owner, corpus='facts'), service_factory=factory)
     manifest = json.loads(capsys.readouterr().out)
     with store._tx() as db:
         data = json.loads(db.execute('SELECT data FROM jobs').fetchone()[0])
@@ -400,7 +401,8 @@ def test_api_diagnostics_expose_registered_ambiguity_without_model_or_external_r
 def test_worker_once_reports_recovery_failure_nonzero_without_private_exception(tmp_path, monkeypatch, capsys):
     import sys
 
-    from copilot.__main__ import main
+    from copilot.__main__ import _dispatch
+    from copilot.process_boundary import settings_command
     from copilot.store import Store
     settings = Settings(tmp_path / 'data', tmp_path / 'models')
     monkeypatch.setattr(Settings, 'from_env', classmethod(lambda _cls: settings))
@@ -409,7 +411,7 @@ def test_worker_once_reports_recovery_failure_nonzero_without_private_exception(
         raise OSError('PRIVATE-RECOVERY-EXCEPTION-CANARY')
     monkeypatch.setattr(Store, 'reconcile_blobs', failed)
     with pytest.raises(SystemExit) as caught:
-        main()
+        _dispatch(settings_command('worker', settings, once=True), service_factory=lambda *_args: None)
     assert caught.value.code != 0
     output = capsys.readouterr()
     assert 'PRIVATE-' not in output.out + output.err

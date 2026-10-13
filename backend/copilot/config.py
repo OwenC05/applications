@@ -1,4 +1,4 @@
-"""Explicit local paths; never reads the legacy app's .env or .data."""
+"""Explicit application paths; SDK launch isolation is enforced separately."""
 import os
 import time
 from contextlib import contextmanager

@@ -9,11 +9,7 @@ import hashlib
 import json
 import math
 import os
-import signal
 import statistics
-import subprocess
-import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -144,6 +140,8 @@ def run(cases, root, models, seed=17):
     Use main() for the supported offline boundary; this function does not mutate
     a reusable process's environment or working directory to create isolation.
     """
+    from copilot.process_boundary import require_sdk_boundary
+    require_sdk_boundary()
     if Path('.env').exists() or any(key.upper().startswith('CHROMA_') for key in os.environ):
         raise RuntimeError('run requires an isolated environment; use the offline CLI')
     import chromadb
@@ -193,81 +191,36 @@ def _parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def _worker_main(argv):
-    args = _parse_args(argv)
-    cases = load_cases(args.dataset)
-    cases = [case for case in cases if args.split == 'all' or case['split'] == args.split]
+def _worker_main(command, workspace):
+    from copilot.process_boundary import require_sdk_boundary
+    require_sdk_boundary()
+    cases = load_cases(Path(command['dataset']))
+    cases = [case for case in cases if command['split'] == 'all' or case['split'] == command['split']]
     from copilot.models import LocalModels
-    with tempfile.TemporaryDirectory(prefix='copilot-frozen-app-eval-', dir=Path.cwd()) as temp:
-        report = run(cases, Path(temp), LocalModels(args.models), args.seed)
-    args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + '\n')
-    print(json.dumps({'output': str(args.output), 'dataset_sha256': FROZEN_SHA256,
+    report = run(cases, workspace, LocalModels(Path(command['models'])), command['seed'])
+    output = Path(command['output'])
+    output.write_text(json.dumps(report, indent=2, allow_nan=False) + '\n')
+    print(json.dumps({'output': str(output), 'dataset_sha256': FROZEN_SHA256,
                       'summary': report['summary']}, allow_nan=False))
 
 
 def main():
-    # Parse before spawning or importing model/storage libraries. Resolve caller
-    # paths before changing cwd in the child; never read the caller's dotenv.
     args = _parse_args()
-    worker_args = ['--dataset', str(args.dataset.resolve()), '--models', str(args.models.resolve()),
-                   '--offline', '--seed', str(args.seed), '--split', args.split,
-                   '--output', str(args.output.resolve())]
-    repo = Path(__file__).resolve().parents[1]
-    bootstrap = (f'import sys; sys.path[:0] = {[str(repo / "eval"), str(repo / "backend")]!r}; '
-                 'from application_run import _worker_main; _worker_main(sys.argv[1:])')
-    # No inherited dotenv, transport, auth, proxy, provider or Python-path config.
-    # Retain only OS process necessities; the model loader remains hash-checked
-    # and local_files_only, with library offline switches forced as well.
-    env = {key: value for key, value in os.environ.items()
-           if key.upper() in {'PATH', 'SYSTEMROOT', 'WINDIR', 'SYSTEMDRIVE'}}
-    env.update(HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1', HF_HUB_DISABLE_TELEMETRY='1',
-               ANONYMIZED_TELEMETRY='False')
-    child = None
-    termination_requested = None
-
-    def terminate_parent(signum, frame):
-        nonlocal termination_requested
-        # Repeated TERM must not interrupt exact-child reaping/root cleanup.
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        termination_requested = signum
-        if child is not None:
-            raise SystemExit(128 + signum)
-
-    previous_handler = None
-    if os.name == 'posix':
-        previous_handler = signal.signal(signal.SIGTERM, terminate_parent)
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
+    from copilot.process_boundary import launch
     try:
-        with tempfile.TemporaryDirectory(prefix='copilot-offline-worker-') as temp:
-            child = None
-            try:
-                # During Popen the handler records TERM rather than raising
-                # before ownership is assigned. Do not block SIGTERM: a child
-                # would inherit that mask and ignore terminate() until unblocked.
-                if termination_requested is not None:
-                    raise SystemExit(128 + termination_requested)
-                child = subprocess.Popen([sys.executable, '-I', '-c', bootstrap, *worker_args],
-                                         cwd=temp, env=env)
-                if termination_requested is not None:
-                    raise SystemExit(128 + termination_requested)
-                returncode = child.wait()
-                if returncode:
-                    raise subprocess.CalledProcessError(returncode, child.args)
-            finally:
-                # Only this owned process is signalled. Reap before removing its
-                # cwd, which also contains all worker data/index temporary roots.
-                if child is not None:
-                    if child.poll() is None:
-                        child.terminate()
-                        try:
-                            child.wait(timeout=5)
-                        except subprocess.TimeoutExpired:
-                            child.kill()
-                            child.wait()
-                    else:
-                        child.wait()
-    finally:
-        if previous_handler is not None:
-            signal.signal(signal.SIGTERM, previous_handler)
+        raise SystemExit(launch({'schema_version': 1, 'kind': 'application_eval',
+            'dataset': str(args.dataset.resolve()), 'models': str(args.models.resolve()),
+            'output': str(args.output.resolve()), 'offline': args.offline,
+            'seed': args.seed, 'split': args.split}))
+    except SystemExit:
+        raise
+    except (OSError, ValueError, RuntimeError):
+        print(json.dumps({'error': {'code': 'INDEX_NOT_READY',
+            'message': 'Start the evidence service through the supported isolated launcher.'}}))
+        raise SystemExit(1) from None
+
 
 
 if __name__ == '__main__':
