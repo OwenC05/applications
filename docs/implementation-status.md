@@ -50,7 +50,8 @@ not a current ban on building. Acceptance and privacy boundaries are unchanged.
   cold search exceeded a five-second harness timeout; the complete rerun used an
   explicit 120-second cold-search timeout. This is functional evidence, **not**
   a latency/capacity benchmark or Docker qualification. A private Compose worker
-  is configured and statically tested; Docker is unavailable on this host.
+  was configured and statically tested; Docker was unavailable at that checkpoint.
+  The later isolated Docker increment below supersedes that availability finding.
   Drafting and the full downstream release gates remain pending. The static
   research handler is described below.
 - **S2 closure:** explicit warned retry creates distinct durable job
@@ -353,8 +354,9 @@ The preserved Node app and Python evidence workbench remain runnable separately.
 Python API-only generation, immutable local edits and clean export are described
 above, together with one-call unchanged-text reassessment; saved writing UI
 inspection/edit/export and separately acknowledged paid UI controls are bounded
-previews. Exact human review and browser automation remain unavailable pending
-their own integration and independent gates. Each
+previews. The later exact-writing review increment below adds deliberate human
+acknowledgement, not whole-application approval. Browser automation remains
+unavailable pending its own integration and independent gates. Each
 friend uses an independent local installation, not a hosted shared account.
 
 S6-B2c connects explicit generation and unchanged saved-edit assessment controls.
@@ -451,3 +453,72 @@ Direct copied/constructed model-instance regressions exposed and repaired an out
 revalidation gap before publication. Independent source reviews and fresh main-tree
 verification passed 191 targeted tests (including existing quote regressions), plus
 590 Node tests. This component does not complete S3 or qualify application quality.
+
+### S6 exact writing-review controls — verified preview component
+
+The workspace now connects an inline exact-writing disclosure to the existing
+local review API. A separate unchecked acknowledgement and record action create
+no paid job, fact/manual confirmation or browser grant. Preview invalidation and
+operation settlement use separate identities. Results are selected deliberately,
+never automatically adopted. Unknown post-send outcomes retain the exact request
+for explicit replay. Effective newer typing can be secured in a separate in-memory
+read-only capsule before navigation; quarantine survives replay/remount. Recognized
+privacy cleanup uses the captured owner, while revocation preserves uncertainty.
+
+The initial independent review found a callback-order privacy defect: a reentrant
+context callback could forget an owner after a check and resurrect the operation.
+Six actual failing regressions reproduced it. Final registration/dispatch checks
+now follow mutable callbacks and bind the accepted privacy epoch. Independent
+re-review passed 272 targeted tests and 12 callback probes. A fresh whole Node run
+passed 704 tests with no bad outcomes; syntax checks covered 47 modules, not a
+typecheck. Seven old source-extraction harness failures were repaired by supplying
+new dependencies and asserting the additive guards, not by skipping old behavior.
+
+Four actual production-controller-to-ASGI cases passed across tech and finance
+inputs with a non-null cover letter and optional manual exclusion. They exercised
+real post-commit HTTP 500, exact same-key/body replay, one review child/output bump,
+current/historical outcomes, newer typing/quarantine and unchanged paid accounting.
+These are synthetic workflow fixtures, not model quality or actual-browser proof.
+The source-bound browser passed the finance lost-response path: keyboard disclosure,
+unchecked acknowledgement, real delayed post-commit HTTP 500, same-node focus/caret
+and newer typing, read-only handoff/remount, exact replay, saved export and synthetic
+privacy deletion. Layout fit at 375/768/1280px and scoped axe found zero violations;
+the full functional matrix was not repeated at each width. The separate tech
+browser path also passed normal no-loss recording/unlock without automatic
+adoption, native dirty-guard cancellation/confirmation and explicit saved-child
+selection/export. Native Tab/Shift+Tab, Space and Enter traversed review controls.
+Temporarily disabled buttons lost DOM focus, but sequential navigation stayed
+local without a trap or navigation restart; this does not claim uninterrupted
+button focus. Both source-bound phases preserved all 176 frozen files and the
+128-file Python membership, then closed owned browsers/servers and verified ports
+reusable. Final publication evidence and documentation-delta review remain
+leader-owned.
+This does not complete S6 or qualify a product release.
+
+### Docker qualification increment — isolated pre-controls snapshot
+
+An allowlisted 81-file S5 snapshot, before the new review controls and inactive
+Greenhouse adapter, built successfully with locked dependencies and anonymous
+public downloads. Windows-native owned tool state resolved earlier UNC-path
+failures; their exact mechanism is unproven and failed reports remain retained.
+No default personal Docker config or credential-helper fallback was used.
+
+Actual Compose startup verified a healthy app, app/worker UID 10001, capability
+drop/no-new-privileges, private Chroma heartbeat, read-only worker model mount and
+loopback-only host port 38037 in an owned override. A synthetic tech/finance profile
+survived restart of all three owned containers. Model readiness and cloud access
+remained false. Exact created containers, network and three volumes were removed
+and absence verified; owned images/build cache remain. Chroma vendor defaults are
+not claimed to be non-root or capability-drop-all. This proves that snapshot's
+bounded startup/persistence, not current-workflow model provisioning, full retrieval,
+backup/restore, friend installation, complete S7 or release readiness.
+
+### Separate SDK environment-isolation issue — repair pending
+
+A synthetic owned-directory probe confirmed that Chroma 1.5.9's Pydantic settings
+can read a working-directory `.env` despite `PYTHON_DOTENV_DISABLED=1`; that flag
+does not disable `dotenv_values`. Prior verification used owned empty import
+directories, which remained the actual privacy barrier. No real private `.env`,
+provider credentials or user documents were read. Production CLI/SDK isolation
+requires a separately reviewed repair before private-data/friend release; the
+writing-review component and Docker snapshot tests do not close this issue.

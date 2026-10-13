@@ -45,7 +45,7 @@ test('root mounts and retires writing separately without reloading or clearing u
 
 test('internal navigation blocks pending/unresolved writing without trapping explicit scope deletion', async () => {
   const source = await readFile(new URL('../backend/ui/workspace/app.js', import.meta.url), 'utf8');
-  assert.match(source, /function writingBlocksNavigation\(\) \{\s+if \(writing\?\.unresolved\)/);
+  assert.match(source, /function writingBlocksNavigation\(\) \{[\s\S]*?if \(writing\?\.unresolved\)/);
   assert.match(source, /button\('Reload selected data', \(\) => \{\s+if \(writingBlocksNavigation\(\)\) return;/);
   assert.match(source, /application\.role\}`, \(\) => \{\s+if \(writingBlocksNavigation\(\)\) return;/);
   assert.match(source, /if \(writingBlocksNavigation\(\)\) \{ location\.hash = state\.route; return; \}/);
@@ -153,9 +153,9 @@ test('actual privacy completion retires same-owner writing but never another own
     recovery.retain('owner', 'app', capsule()); recovery.retain('other', 'app', capsule('other', 'app'));
     let retired = 0, resolve, reject;
     const response = new Promise((yes, no) => { resolve = yes; reject = no; });
-    let disclosureRetired = 0, budgetRetired = 0;
-    const helper = new Function('state', 'writingRecovery', 'paidRegistry', 'recognizedPrivacyDeletion', 'startWriting', 'retireDisclosure', 'retireBudget', `let writing = startWriting; ${definition}; return {run: forgetWritingAfter, current: () => writing};`)(
-      state, recovery, {forgetOwner() {}}, (kind, value) => kind === 'workspace' && value?.schema_version === 1 && value.deleted === true && typeof value.cleanup_pending === 'boolean', {retire() { retired++; }}, () => { disclosureRetired++; }, () => { budgetRetired++; });
+    let disclosureRetired = 0, budgetRetired = 0; const reviewForgotten = [];
+    const helper = new Function('state', 'writingRecovery', 'paidRegistry', 'reviewRegistry', 'recognizedPrivacyDeletion', 'startWriting', 'retireDisclosure', 'retireBudget', `let writing = startWriting; ${definition}; return {run: forgetWritingAfter, current: () => writing};`)(
+      state, recovery, {forgetOwner() {}}, {forgetOwner(owner) { reviewForgotten.push(owner); }}, (kind, value) => kind === 'workspace' && value?.schema_version === 1 && value.deleted === true && typeof value.cleanup_pending === 'boolean', {retire() { retired++; }}, () => { disclosureRetired++; }, () => { budgetRetired++; });
     const pending = helper.run('workspace', () => response);
     if (switched) state.owner = 'other';
     if (fail) reject(Error('Deletion failed')); else resolve({schema_version: 1, deleted: true, cleanup_pending: false});
@@ -164,6 +164,7 @@ test('actual privacy completion retires same-owner writing but never another own
     assert.equal(disclosureRetired, !switched && !fail ? 1 : 0);
     assert.equal(budgetRetired, !switched && !fail ? 1 : 0);
     assert.equal(helper.current() === null, !switched && !fail);
+    assert.deepEqual(reviewForgotten, fail ? [] : ['owner']);
     assert.equal(recovery.has('owner', 'app'), fail);
     assert.equal(recovery.has('other', 'app'), true);
   }
@@ -175,7 +176,7 @@ test('quarantine locks input/history writes, remounts scoped recovery and warns 
   assert.match(source, /if \(applicationMutationLocked\(application.profile_id, application.application_id\)\) return notify\('History writes/);
   assert.match(source, /recovery: writingRecovery.get\(state.owner, application.application_id\)/);
   assert.match(source, /const retained = writingRecovery.retain\(application.profile_id, application.application_id, capsule\)/);
-  assert.match(source, /if \(state.dirty \|\| writingRecovery.size \|\| paidRegistry.size\)/);
+  assert.match(source, /if \(state.dirty \|\| writingRecovery.size \|\| paidRegistry.size \|\| reviewRegistry.needsUnloadWarning\(\)\)/);
 });
 
 test('ending global busy state does not visually unlock quarantined form actions', async () => {
@@ -184,8 +185,8 @@ test('ending global busy state does not visually unlock quarantined form actions
   const locked = {dataset: {writingLocked: 'true'}, disabled: true};
   const ordinary = {dataset: {}, disabled: false};
   const state = {busy: false};
-  const busy = new Function('state', 'document', 'applicationLocks', 'writing', `return (${definition.trim()});`)(
-    state, {querySelectorAll: () => [locked, ordinary]}, null, null);
+  const busy = new Function('state', 'document', 'applicationLocks', 'writing', 'disclosure', 'review', `return (${definition.trim()});`)(
+    state, {querySelectorAll: () => [locked, ordinary]}, null, null, null, null);
   busy(true);
   assert.equal(locked.disabled, true); assert.equal(ordinary.disabled, true);
   busy(false);
@@ -197,7 +198,7 @@ test('ending global busy state does not visually unlock quarantined form actions
 test('root mounts a read-only disclosure bridge without changing saved-output or edit ownership', async () => {
   const source = await readFile(new URL('../backend/ui/workspace/app.js', import.meta.url), 'utf8');
   assert.match(source, /import \{disclosurePane\} from '\.\/disclosure-pane\.js'/);
-  assert.match(source, /onCaptureChange: \(\) => disclosure\?\.invalidate\(\)/);
+  assert.match(source, /onCaptureChange: \(\) => \{ disclosure\?\.invalidate\(\); review\?\.invalidate\(\); \}/);
   assert.match(source, /getCapture: \(\) => writing\?\.capture\(\)/);
   assert.match(source, /isDirty: \(\) => state.dirty/);
   assert.ok(source.indexOf('append(writing.element)') < source.indexOf('append(disclosure.element)'));
@@ -209,12 +210,14 @@ test('root mounts a read-only disclosure bridge without changing saved-output or
 test('domain input invalidates a disclosure without clearing buffers or replacing its controls', async () => {
   const source = await readFile(new URL('../backend/ui/workspace/app.js', import.meta.url), 'utf8');
   const definition = source.slice(source.indexOf('function invalidateDisclosureInput('), source.indexOf('function exactEnvelope('));
-  let invalidated = 0;
-  const own = {}, other = {};
+  let invalidated = 0, reviewInvalidated = 0;
+  const own = {}, other = {}, reviewOwn = {};
   const disclosure = {element: {contains: target => target === own}, invalidate() { invalidated++; }};
-  const invalidate = new Function('disclosure', `return (${definition.trim()});`)(disclosure);
+  const review = {element: {contains: target => target === reviewOwn}, invalidate() { reviewInvalidated++; }};
+  const invalidate = new Function('disclosure', 'review', `return (${definition.trim()});`)(disclosure, review);
   invalidate({target: own}); assert.equal(invalidated, 0);
-  invalidate({target: other}); assert.equal(invalidated, 1);
+  invalidate({target: other}); assert.equal(invalidated, 1); assert.equal(reviewInvalidated, 2);
+  invalidate({target: reviewOwn}); assert.equal(invalidated, 1); assert.equal(reviewInvalidated, 2);
   assert.doesNotMatch(definition, /edits\.|replaceChildren|\.value\s*=/);
   assert.match(source, /\$\('main'\).addEventListener\('input', invalidateDisclosureInput\)/);
 });

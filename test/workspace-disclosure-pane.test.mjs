@@ -19,10 +19,10 @@ const named = (root, label) => walk(root).find(item => item.tagName === 'button'
 const control = (root, label) => walk(root).find(item => item.tagName === 'label' && item.children[0]?.textContent === label).children[1];
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const capture = () => ({epoch: 1, packetInspection: null, draftInspection: null, bufferMatchesSaved: false, saving: false, uncertain: false, quarantined: false, retired: false});
-function harness({snapshot = capture(), dirty = false, api = async () => { throw new Error('No IO expected'); }, paidController, onSelectResult} = {}) {
+function harness({snapshot = capture(), dirty = false, api = async () => { throw new Error('No IO expected'); }, paidController, onSelectResult, isBusy, isMutationLocked} = {}) {
   const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
   const calls = [], notices = [];
-  const pane = disclosurePane({owner: '11111111-1111-4111-8111-111111111111', application: '22222222-2222-4222-8222-222222222222', api: (...args) => { calls.push(args); return api(...args); }, getCapture: () => snapshot, isDirty: () => dirty, paidController, onSelectResult, notify: message => notices.push(message)});
+  const pane = disclosurePane({owner: '11111111-1111-4111-8111-111111111111', application: '22222222-2222-4222-8222-222222222222', api: (...args) => { calls.push(args); return api(...args); }, getCapture: () => snapshot, isDirty: () => dirty, isBusy, isMutationLocked, paidController, onSelectResult, notify: message => notices.push(message)});
   return {pane, calls, notices, snapshot, model: control(pane.element, 'Provider model identifier'), ceiling: control(pane.element, 'Maximum output tokens per call'), restore() { pane.retire(); globalThis.document = previous; }};
 }
 const generation = 'Inspect generation data and limits';
@@ -230,4 +230,18 @@ for (const [method,label,view] of [['refreshKnownJob','Read known job status','o
 test('thrown paid action failure survives finally synchronization without exposing raw error',async()=>{
  const h=paidHarness({state:{kind:'generation',state:'known',job:{state:'failed',stage:'drafting_failed',cleanup_pending:false},actionPending:false,handedOff:false,resultDraftId:null,admission:null}});
  try{h.paid.refreshKnownJob=async()=>{throw new Error('private transport');};await named(h.pane.element,'Read known job status').click();h.pane.syncOperation();assert.match(h.pane.element.textContent,/Paid action failed/);assert.doesNotMatch(h.pane.element.textContent,/private transport/);}finally{h.restore();}
+});
+
+for (const guard of ['isBusy', 'isMutationLocked']) test(`new disclosure ${guard} guard blocks preview and launch without blocking retained paid status`, async () => {
+  let blocked = true, refreshed = 0;
+  const operation = {state: 'known', kind: 'generation', actionPending: false, resultDraftId: null};
+  const h = harness({[guard]: () => blocked, paidController: {snapshot: () => operation, refreshKnownJob: async () => { refreshed++; }}});
+  try {
+    h.model.value = 'configured-model'; h.pane.syncOperation();
+    await named(h.pane.element, generation).click(); await named(h.pane.element, assessment).click();
+    assert.equal(h.calls.length, 0); assert.equal(named(h.pane.element, generation).disabled, true);
+    assert.equal(named(h.pane.element, 'Launch acknowledged paid operation').disabled, true);
+    const status = named(h.pane.element, 'Read known job status'); assert.equal(status.disabled, false); await status.click(); assert.equal(refreshed, 1);
+    blocked = false; h.pane.syncOperation(); assert.equal(status.disabled, false);
+  } finally { h.restore(); }
 });

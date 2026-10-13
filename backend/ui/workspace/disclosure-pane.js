@@ -17,7 +17,7 @@ const details = (label, value) => {
 
 // Local selected-data inspection and separately acknowledged paid operations.
 // The root owns the paid controller and retained recovery capsule.
-export function disclosurePane({api, owner, application, getCapture, isDirty, paidController, onSelectResult = async () => false, notify = () => {}}) {
+export function disclosurePane({api, owner, application, getCapture, isDirty, isBusy = () => false, isMutationLocked = () => false, paidController, onSelectResult = async () => false, notify = () => {}}) {
   let retired = false, pending = null, preview = null, selection = null, operation = null, verifiedResult = null, paidFailure = null;
   const element = section('Selected-data disclosure', text('Inspection does not send data to the cloud. A separate unchecked acknowledgement and explicit launch are required for each new paid operation. A preview does not certify provider-key or remaining daily budget readiness.', 'warning'));
   element.className = 'application-writing';
@@ -55,6 +55,10 @@ export function disclosurePane({api, owner, application, getCapture, isDirty, pa
     text('No compatible model is assumed. The output ceiling is configuration, not permission to spend or transmit.'), generation, generationReason, assessment, assessmentReason, status, content, labelled('I acknowledge this exact selected operation may transmit data and incur unknown charges', acknowledge), launch, launchReason, paidStatus, paidContent, ...Object.values(actions), selectResult);
   function blocked(kind) {
     if (retired) return 'This disclosure pane is retired.';
+    try {
+      if (isBusy() !== false) return 'Wait for the current application action to settle.';
+      if (isMutationLocked() !== false) return 'A retained writing review locks new disclosure inspection and paid launch. Resolve the exact operation first.';
+    } catch { return 'Application mutation state is unavailable.'; }
     let capture, dirty;
     try { capture = copy(getCapture()); dirty = isDirty(); } catch { return 'Writing state is unavailable. Refresh the saved inspection before proceeding.'; }
     if (!capture || typeof dirty !== 'boolean') return 'Writing state is unavailable.';
@@ -189,7 +193,7 @@ export function disclosurePane({api, owner, application, getCapture, isDirty, pa
     } else observations.push('No retained paid operation. Fresh inspection and acknowledgement start a NEW operation, not lost-request recovery.');
     if (paidFailure) observations.push(paidFailure);
     paidStatus.textContent = observations.join(' ');
-    syncPaid();
+    sync();
   }
   function updatePaid(view, data, error) {
     if (retired) return;
@@ -229,6 +233,6 @@ export function disclosurePane({api, owner, application, getCapture, isDirty, pa
     retired = true; pending = null; preview = null; selection = null; operation = null; verifiedResult = null; paidFailure = null; acknowledge.checked = false; controller.retire();
     model.removeEventListener('input', changed); ceiling.removeEventListener('input', changed);
     generation.onclick = null; assessment.onclick = null; model.value = ''; ceiling.value = '';
-    clearOwned(element); getCapture = null; isDirty = null; notify = null; paidController = null; onSelectResult = null;
+    clearOwned(element); getCapture = null; isDirty = null; isBusy = null; isMutationLocked = null; notify = null; paidController = null; onSelectResult = null;
   }};
 }

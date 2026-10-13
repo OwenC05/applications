@@ -2,7 +2,7 @@
 
 A private, local-first internship application workspace for **technology and finance**. Includes the preserved dependency-free Node.js MVP and a separate Python/FastAPI evidence workbench.
 
-**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python also has reviewed profile/interview/proposal/application data APIs, an explicit legacy importer and an isolated workspace preview. Durable workers handle indexing and bounded static company/role research with original-source inspection through the API. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. Python now connects stored per-question packets to consent-gated, durable 3/5-call drafting through API routes, with exact-text evidence assessment and blocked-output inspection. The workspace adds saved packet/draft inspection, local immutable writing edits and saved-text export; explicit paid generation/saved-edit assessment controls are connected with retained-request recovery. Exact local writing review is available through the API; its UI controls, semantic quality qualification and supervised browser filling/submission remain unfinished. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
+**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python also has reviewed profile/interview/proposal/application data APIs, an explicit legacy importer and an isolated workspace preview. Durable workers handle indexing and bounded static company/role research with original-source inspection through the API. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; an isolated S5 snapshot passed startup/restart persistence, while current-workflow and restore qualification remain open. Python now connects stored per-question packets to consent-gated, durable 3/5-call drafting through API routes, with exact-text evidence assessment and blocked-output inspection. The workspace adds saved packet/draft inspection, local immutable writing edits and saved-text export; explicit paid generation/saved-edit assessment controls are connected with retained-request recovery. Exact local writing review is connected through the API and workspace preview; semantic quality qualification and supervised browser filling/submission remain unfinished. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
 
 Generation and reassessment API enqueue require an explicit captured drafting
 admission revision as well as the unchanged request/disclosure. A durable consumed
@@ -145,8 +145,9 @@ shows observed values without replacing inputs. These are not a money cap or
 cloud consent and can affect queued/running work. Saves are last-writer-wins.
 An unknown save outcome requires manual observation before a new update; refresh
 does not settle the earlier write or prevent another tab from changing limits.
-Cloud research launch, application review and browser actions are **not available
-in this preview**. Existing question text/order cannot yet be
+Cloud research launch, whole-application approval and browser actions are **not
+available in this preview**. Exact writing-only review is a separate explicit
+control, not any of those capabilities. Existing question text/order cannot yet be
 changed in its line editor: it refuses changes rather than reassigning IDs or
 constraints. Saved-state JSON export is not a qualified full backup. Independent
 review and synthetic actual-browser flows cover the data/activity and saved-writing
@@ -169,7 +170,7 @@ regression tests; that browser fixture was imported before the repair.
 
 ### Docker setup
 
-Prerequisites: Docker Engine/Desktop with Compose, Linux containers and enough CPU/RAM for two local text models. The current development host has 7.6 GiB RAM; a small real-model smoke is not a capacity benchmark. Docker deployment is **not runtime-verified here** because Docker is unavailable.
+Prerequisites: Docker Engine/Desktop with Compose, Linux containers and enough CPU/RAM for two local text models. The current development host has 7.6 GiB RAM; a small real-model smoke is not a capacity benchmark. An isolated pre-controls S5 snapshot passed Docker build, startup and synthetic restart persistence. Current-workflow model provisioning, full retrieval, backup/restore and friend-install qualification remain open; this is not a qualified deployment release.
 
 ```sh
 docker compose build
@@ -211,11 +212,11 @@ The daemon emits bounded, content-free outcome changes to stderr. `--once` emits
 
 ### Python development / verification
 
-Python **3.12** and [uv](https://docs.astral.sh/uv/) are required. The lock uses Linux x86-64 CPU Torch, not CUDA; macOS/Windows-native Python are not verified targets. Windows users use Linux Docker/WSL. No command imports the existing `.data` or reads the legacy `.env`.
+Python **3.12** and [uv](https://docs.astral.sh/uv/) are required. The lock uses Linux x86-64 CPU Torch, not CUDA; macOS/Windows-native Python are not verified targets. Windows users use Linux Docker/WSL. There is no automatic legacy `.data` import. The Chroma dependency currently can read a working-directory `.env`; use a clean directory without that file until the SDK isolation repair below is complete. The commands below execute Python from `backend`, which must contain no `.env`.
 
 ```sh
 uv sync --project backend --locked
-uv run --project backend pytest backend/tests
+uv run --directory backend pytest tests
 uv run --project backend ruff check backend eval
 uv run --directory backend python -m copilot.models setup
 # Supply a private Chroma server on localhost:8000 (Compose uses hostname chroma internally).
@@ -237,10 +238,10 @@ Next slices and acceptance criteria: [evidence milestone](docs/plans/evidence-mi
 Real offline integration (opt-in, synthetic fixtures only):
 
 ```sh
-COPILOT_REAL_MODEL_DIR=/path/to/models uv run --project backend pytest backend/tests -m real_models
+COPILOT_REAL_MODEL_DIR=/path/to/models uv run --directory backend pytest tests -m real_models
 # To additionally exercise an explicitly started loopback Chroma HTTP server:
-COPILOT_REAL_MODEL_DIR=/path/to/models COPILOT_HTTP_SMOKE_PORT=8000 uv run --project backend pytest backend/tests -m real_models
-PYTHONPATH=backend uv run --project backend python eval/run.py --models /path/to/models --output eval/latest-smoke.json
+COPILOT_REAL_MODEL_DIR=/path/to/models COPILOT_HTTP_SMOKE_PORT=8000 uv run --directory backend pytest tests -m real_models
+PYTHONPATH=. uv run --directory backend python ../eval/run.py --models /path/to/models --output ../eval/latest-smoke.json
 ```
 
 The evaluation is a small synthetic retrieval check, not semantic truth validation or hiring quality. Development currently emits an upstream Starlette/TestClient deprecation warning; tests still pass. Docker/resource-limit behavior and independent friend setup remain release checks.
@@ -258,12 +259,18 @@ at actual transmission admission; unknown provider outcomes are not replayed.
 
 Set a model identifier explicitly in the preview request, configure local daily/
 per-job reservation ceilings, grant the `drafting` purpose, and acknowledge the
-exact preview hash before queuing. Python reads `OPENAI_API_KEY` from the worker
-process environment only when authorizing a consented request; it does not load
-the Node `.env` file. Never send keys in API bodies or commit them. Preview, queue
+exact preview hash before queuing. The provider adapter reads `OPENAI_API_KEY`
+from the worker process environment only when authorizing a consented request;
+it does not parse the Node `.env` file. Never send keys in API bodies or commit them. Preview, queue
 and inspection make no paid calls or key lookups. Reservation estimates use
 conservative UTF-8 input bytes plus output ceilings, **not exact tokens or prices**.
 See [the Python drafting API](API.md#python-drafting-generation-preview).
+
+**Runtime privacy caveat:** Chroma 1.5.9 can independently read a `.env` in its
+working directory, even with `PYTHON_DOTENV_DISABLED=1`. Until the separate SDK
+isolation repair is complete, run Python only from a clean directory without
+such a file, never the legacy Node `.env` directory. Synthetic tests used owned
+empty working directories; no actual private `.env` was read during verification.
 
 This is bounded generation/publication and local editing, **not completed S5 or a qualified release**.
 Unsupported claims, missing required answers and exceeded limits remain visible.
@@ -289,15 +296,26 @@ the assessment and does not inherit approval. Histories additionally allow up to
 65 review links and 193 total derived links. A synthetic maximum-history run
 exercised all 193 links, uncached inspection/export/replay, limit denials and
 concurrent API checks; this is bounded correctness evidence, not a latency SLA.
-The workspace can inspect/export/edit review children but has **no review action
-controls or automatic adoption/badge**. `writing_review_ready`, `review_eligible`
+The workspace adds an explicit exact-writing disclosure, initially unchecked
+acknowledgement and separate record action. It never automatically adopts a
+review child or displays a generic approval badge. `writing_review_ready`, `review_eligible`
 and `reviewed_current` are separate; none authorizes form filling or submission.
 `browser_eligible` remains false. Exact reviewed-request replay returns its original
 child without making that child current again.
 No real provider request or human-labelled semantic-quality gate has been run.
+
+Review recovery is separate from paid requests and local edit recovery. A lost,
+failed or malformed response after sending remains uncertain; only explicit
+same-key/body replay reconciles it. Newer typing is preserved, and a deliberate
+read-only handoff retains it in page memory before permitting navigation.
+Quarantined writing stays read-only even after successful replay. Reloading loses
+this memory, not server history. These controls remain a preview, not complete S6.
 
 The separate inferred-rubric validator is currently **inactive**: it validates
 supplied canonical citations and labels interpretations as inferred, semantically
 unassessed and authority unchecked. It does not authenticate acquisition, bind
 current generations or feed application drafting. The existing exact-quotation
 compiler remains a distinct, unchanged path.
+An anonymous fixed-endpoint Greenhouse acquisition adapter is also **inactive**.
+Its retained representations do not authenticate eligibility or automatically
+feed research/drafting; no discovery/search agent is enabled by that component.

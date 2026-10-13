@@ -653,8 +653,16 @@ review only, otherwise null). History blockers do not retroactively revoke an
 intact same-vector review. Staleness clears current approval, not retained history.
 Editing a review child is permitted but creates an unassessed child with no
 inherited snapshot. `browser_eligible` remains false. The workspace consumes review
-inspections for selection/edit/export, never as a completed paid result, and has
-no review action controls, automatic badge or automatic adoption.
+inspections for selection/edit/export, never as a completed paid result. Its
+separate inline writing-review controls require explicit preview, unchecked
+acknowledgement and a record action; results require deliberate selection.
+There is no automatic badge/adoption or new browser capability. The page retains
+the exact endpoint/body/key for explicit replay after any post-send error. A
+read-only handoff secures effective newer typing before allowing navigation;
+quarantine survives successful replay. These private recoveries are memory-only,
+separate from paid admission/edit recovery, and cleared for the captured owner
+only after a recognized managed deletion. Revocation retires previews, not an
+unresolved operation. Reloading loses recovery memory, not server history.
 
 Per generation the graph permits at most 64 edits, 128 combined edit/assessment
 links, 65 reviews and 193 total derived links. Association/count validation is

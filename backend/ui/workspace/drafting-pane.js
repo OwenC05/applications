@@ -31,10 +31,11 @@ export function writingWarning(question, value) {
 // Controls and editor nodes survive unrelated refreshes. Only an intentional
 // selection/adoption replaces the baseline; a save acknowledgement never does.
 export function draftingPane({api, exportText, owner, application, edits, notify = () => {}, confirmDiscard = globalThis.confirm,
-  keyFactory = () => crypto.randomUUID(), onPublished = () => {}, recovery = null, onHandoff = () => false, onCaptureChange = () => {}, isMutationLocked = () => false}) {
+  keyFactory = () => crypto.randomUUID(), onPublished = () => {}, recovery = null, onHandoff = () => false, onCaptureChange = () => {}, isMutationLocked = () => false,
+  isSelectionLocked = () => false, readOnlyWriting = null}) {
   let retired = false, inspection = null, buffer = null, saving = false, pending = null, savedChild = null, uncertain = false;
   let selectedDraft = '', selectedPacket = '', ownDirty = false, handedOff = false;
-  let epoch = 0, packetInspection = null, observer = onCaptureChange;
+  let epoch = 0, packetInspection = null, observer = onCaptureChange, readOnlySequence = 0;
   function capture() {
     return {epoch, packetInspection: retired ? null : copy(packetInspection),
       draftInspection: retired || uncertain || handedOff || savedChild || !buffer ? null : copy(inspection),
@@ -46,7 +47,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     try { observer?.(capture()); } catch { /* Inspection observers cannot interrupt local writing or privacy cleanup. */ }
   }
   const controls = new Map();
-  const pane = section('Saved evidence and application writing', text('Local saved inspection, immutable editing and saved-text export. Separately acknowledged generation and unchanged saved-edit assessment are below; no review action, autofill or submission is connected.', 'warning'));
+  const pane = section('Saved evidence and application writing', text('Local saved inspection, immutable editing and saved-text export. Separately acknowledged generation, unchanged saved-edit assessment and exact writing review controls are below. Writing review does not confirm facts or authorize autofill or submission.', 'warning'));
   const packetStatus = text('Refresh to inspect saved packets.'), draftStatus = text('Refresh to inspect saved drafts.'), editStatus = text(''), exportStatus = text('');
   for (const status of [packetStatus, draftStatus, editStatus, exportStatus]) { status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); }
   const packetSelect = node('select'), questionSelect = node('select'), draftSelect = node('select');
@@ -76,7 +77,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     draftSelect.value = selectedDraft; renderDraft(child); sync();
   });
   const discardButton = button('Discard this writing buffer and inspect selected saved revision', () => {
-    if (saving || !discard()) return;
+    if (saving || isSelectionLocked() || !discard()) return;
     pending = null; uncertain = false; savedChild = null;
     if (inspection) renderDraft(inspection);
     if (selectedDraft) controller.draft(selectedDraft);
@@ -103,7 +104,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     adopt.disabled = retired || isMutationLocked() || handedOff || saving || uncertain || !savedChild;
     discardButton.disabled = retired || handedOff || saving || uncertain || (!ownDirty && !uncertain && !savedChild);
     download.disabled = retired || saving || !selectedDraft;
-    draftSelect.disabled = retired || saving || (!selectedDraft && draftSelect.children.length <= 1);
+    draftSelect.disabled = retired || saving || isSelectionLocked() || (!selectedDraft && draftSelect.children.length <= 1);
     handoff.disabled = retired || saving || !uncertain || handedOff || !pending || !buffer;
     if (emitCapture) changed();
   }
@@ -235,6 +236,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
       questionInfo.replaceChildren(node('h3', data.question.text), node('pre', json(data.question)), text('Personal evidence, employer evidence, inference and gaps remain distinct. Stored excerpts/IDs are literal, not verified semantic support.'), node('h4', 'Personal evidence — confirmed-fact references'), node('pre', json(data.packet?.facts ?? [])), node('h4', 'Employer evidence — separate corpus'), node('pre', json(data.packet?.employer ?? [])), node('h4', 'Criteria / inferred priorities (IDs, not personal facts)'), node('pre', json(data.packet?.criteria ?? [])), node('h4', 'Gaps and omissions'), node('pre', json({gaps: data.packet?.gaps ?? [], omitted: data.packet?.omitted ?? [], truncated: data.packet?.truncated})), text('Manual requirement'), node('pre', json(data.manual_requirement)));
     }
     if (view === 'draft-detail') {
+      if (isSelectionLocked()) return;
       try {
         if (data?.draft?.id !== selectedDraft || data.draft.profile_id !== owner || data.draft.application_id !== application) throw new Error('Saved inspection does not match the selected application revision.');
         new DraftBuffer(data);
@@ -263,7 +265,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
   };
   questionSelect.onchange = () => { questionInfo.replaceChildren(); controller.packetQuestion(selectedPacket, questionSelect.value); };
   draftSelect.onchange = () => {
-    if (saving || (!handedOff && !discard())) { draftSelect.value = selectedDraft; return; }
+    if (saving || isSelectionLocked() || (!handedOff && !discard())) { draftSelect.value = selectedDraft; return; }
     if (handedOff) {
       selectedDraft = draftSelect.value;
       controller.draft(selectedDraft); sync(); return;
@@ -275,9 +277,35 @@ export function draftingPane({api, exportText, owner, application, edits, notify
   for (const select of [packetSelect, questionSelect, draftSelect]) select.disabled = true;
   const packets = section('Saved question evidence', button('Refresh saved packet list', () => { packetInspection = null; changed(); controller.packets(); }), labelled('Saved packet batch', packetSelect),
     button('Refresh selected packet inspection', () => { packetInspection = null; changed(); if (selectedPacket) controller.packet(selectedPacket); }), packetStatus, packetInfo, labelled('Canonical packet question', questionSelect), questionInfo);
-  const drafts = section('Saved application writing', button('Refresh saved draft list', () => controller.drafts()), labelled('Saved draft revision', draftSelect), button('Refresh selected saved inspection', () => { changed(); if (selectedDraft) controller.draft(selectedDraft); }), draftStatus, draftInfo);
+  const drafts = section('Saved application writing', button('Refresh saved draft list', () => controller.drafts()), labelled('Saved draft revision', draftSelect), button('Refresh selected saved inspection', () => { if (isSelectionLocked()) return; changed(); if (selectedDraft) controller.draft(selectedDraft); }), draftStatus, draftInfo);
   form.append(editor, editStatus, save, resolve, handoff, adopt, discardButton);
   drafts.append(form, download, exportStatus, savedPreview, ledger); pane.append(packets, drafts); sync();
+  if (recovery !== null && readOnlyWriting !== null) {
+    recovery = null; readOnlyWriting = null;
+    editStatus.textContent = 'Conflicting recoveries rejected. No private writing or mutation authority was restored.';
+  }
+  if (readOnlyWriting !== null) {
+    try {
+      const capsule = copy(readOnlyWriting);
+      if (!exactKeys(capsule, ['schema_version', 'owner', 'application', 'baselineInspection', 'targets'])
+        || capsule.schema_version !== 1 || capsule.owner !== owner || capsule.application !== application
+        || capsule.baselineInspection?.draft?.profile_id !== owner || capsule.baselineInspection?.draft?.application_id !== application) throw new Error('Invalid writing scope');
+      const restored = new DraftBuffer(capsule.baselineInspection);
+      if (!Array.isArray(capsule.targets) || !same(capsule.targets.map(item => item.target), restored.targets().map(item => item.target))
+        || !capsule.targets.every(item => exactKeys(item, ['target', 'text']) && typeof item.text === 'string')) throw new Error('Invalid writing targets');
+      for (const target of capsule.targets) restored.input(target.target, target.text);
+      handedOff = true; selectedDraft = capsule.baselineInspection.draft.id;
+      controller.adoptDraft(selectedDraft); renderDraft(capsule.baselineInspection); buffer = restored;
+      for (const target of restored.targets()) { const input = controls.get(target.target).input; input.value = target.text; input.disabled = true; }
+      ownDirty = !restored.matchesSaved();
+      draftSelect.append(option(selectedDraft, `${selectedDraft} · retained writing-only recovery`)); draftSelect.value = selectedDraft;
+      updateCounters(); editStatus.textContent = 'Retained writing-only recovery. Exact writing is read-only; no edit request, acknowledgement or current approval was restored. Reload/close loses page memory.';
+    } catch {
+      inspection = null; buffer = null; controls.clear(); editor.replaceChildren(); savedPreview.replaceChildren(); ledger.replaceChildren(); draftInfo.replaceChildren();
+      editStatus.textContent = 'Invalid writing-only recovery was rejected. No private writing or mutation authority is available.';
+    }
+    sync();
+  }
   if (recovery !== null) {
     handedOff = true;
     try {
@@ -308,7 +336,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     sync();
   }
   async function selectSavedResult(id) {
-    if (retired || saving || uncertain || handedOff || typeof id !== 'string'
+    if (retired || saving || uncertain || handedOff || isSelectionLocked() || typeof id !== 'string'
       || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id) || !discard()) return false;
     selectedDraft = id; controller.adoptDraft(id);
     if (![...draftSelect.children].some(item => item.value === id)) draftSelect.append(option(id, `${id} · explicitly selected saved result`));
@@ -317,13 +345,39 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     await controller.draft(id);
     return !retired && selectedDraft === id && inspection?.draft?.id === id && buffer !== null;
   }
-  return {element: pane, capture, syncLocks() { sync(false); }, selectSavedResult, get unresolved() { return saving || (uncertain && !handedOff); }, retire() {
+  function captureReadOnlyWriting() {
+    if (retired || saving || uncertain || savedChild || !inspection || !buffer) return null;
+    return {epoch, capsule: {schema_version: 1, owner, application, baselineInspection: copy(inspection), targets: buffer.targets()}};
+  }
+  function freezeReadOnlyWriting(expectedEpoch) {
+    if (retired || saving || uncertain || savedChild || handedOff || !buffer || !inspection || expectedEpoch !== epoch) return false;
+    // Secure effective writing synchronously before any observer can permit navigation.
+    handedOff = true;
+    for (const {input} of controls.values()) input.disabled = true;
+    editStatus.textContent = 'Writing retained read-only for unresolved review recovery. No rollback, automatic selection or renewed approval is inferred.';
+    sync(); return true;
+  }
+  async function inspectSavedResult(id) {
+    if (retired || !handedOff || saving || typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)) return false;
+    const sequence = ++readOnlySequence;
+    try {
+      const data = await api(`/api/workspace/profiles/${encodeURIComponent(owner)}/applications/${encodeURIComponent(application)}/drafts/${encodeURIComponent(id)}`);
+      if (retired || sequence !== readOnlySequence) return false;
+      if (data?.draft?.id !== id || data.draft.profile_id !== owner || data.draft.application_id !== application) return false;
+      new DraftBuffer(data);
+      selectedDraft = id; controller.adoptDraft(id);
+      if (![...draftSelect.children].some(item => item.value === id)) draftSelect.append(option(id, `${id} · read-only result inspection`));
+      draftSelect.value = id; renderSaved(data); sync(false); return true;
+    } catch { if (!retired && sequence === readOnlySequence) draftStatus.textContent = 'Read-only result inspection failed; retained writing and recovery remain unchanged.'; return false; }
+  }
+  return {element: pane, capture, captureReadOnlyWriting, freezeReadOnlyWriting, inspectSavedResult,
+    fenceExternalDispatch() { if (retired) return false; controller.invalidateReads(); return true; }, syncLocks() { sync(false); }, selectSavedResult, get unresolved() { return saving || (uncertain && !handedOff); }, retire() {
     if (retired) return;
     retired = true; controller.retire();
     for (const {input, onInput} of controls.values()) {
       input.removeEventListener('input', onInput); input.value = ''; input.disabled = true;
     }
-    controls.clear(); inspection = null; buffer = null; pending = null; savedChild = null; recovery = null;
+    controls.clear(); inspection = null; buffer = null; pending = null; savedChild = null; recovery = null; readOnlyWriting = null; readOnlySequence++;
     saving = false; uncertain = false; ownDirty = false; selectedDraft = ''; selectedPacket = '';
     packetInspection = null; changed(); observer = null;
     edits.forget(form);

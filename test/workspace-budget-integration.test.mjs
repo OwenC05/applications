@@ -13,7 +13,7 @@ test('root mounts owner-scoped budget settings with shared edits and no generic 
   assert.ok(start >= 0);
   const mount = settings.slice(start, settings.indexOf('append(budget.element)', start));
   assert.match(mount, /api, owner: state.owner, edits/);
-  assert.match(mount, /onConfigurationChanged: \(\) => disclosure\?\.invalidate\(\)/);
+  assert.match(mount, /onConfigurationChanged: \(\) => \{ disclosure\?\.invalidate\(\); review\?\.invalidate\(\); \}/);
   assert.doesNotMatch(mount, /operation\(|refreshAfter|reloadWithMessage|edits\.clear|edits\.acknowledge/);
   assert.equal((app.match(/budget = budgetPane\(/g) || []).length, 1);
 });

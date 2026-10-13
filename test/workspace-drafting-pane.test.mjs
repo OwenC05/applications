@@ -37,7 +37,7 @@ function accepted(parent, body, id = 'child') {
     pre_revisions: body.expected_revisions, request: body, text_sha256: child.text_sha256, ledger_sha256: child.ledger_sha256, style_notes: []};
   return child;
 }
-async function harness({respond, confirmDiscard = () => true, exportText = async () => 'SAVED export', recovery = null, onHandoff = () => false, onCaptureChange = () => {}, isMutationLocked = () => false, initialize = true} = {}) {
+async function harness({respond, confirmDiscard = () => true, exportText = async () => 'SAVED export', recovery = null, onHandoff = () => false, onCaptureChange = () => {}, isMutationLocked = () => false, isSelectionLocked = () => false, readOnlyWriting = null, initialize = true} = {}) {
   const previous = globalThis.document; globalThis.document = {createElement: tag => new Element(tag)};
   const calls = [], edits = new EditBuffers(), notices = [], published = [];
   const parent = inspection();
@@ -46,7 +46,7 @@ async function harness({respond, confirmDiscard = () => true, exportText = async
     if (path.endsWith('/packets')) return {batches: []};
     return parent;
   };
-  const pane = draftingPane({api, exportText, recovery, onHandoff, onCaptureChange, isMutationLocked, owner: 'owner', application: 'app', edits, notify: value => notices.push(value), keyFactory: () => 'logical-key', confirmDiscard, onPublished: value => published.push(value)});
+  const pane = draftingPane({api, exportText, recovery, readOnlyWriting, onHandoff, onCaptureChange, isMutationLocked, isSelectionLocked, owner: 'owner', application: 'app', edits, notify: value => notices.push(value), keyFactory: () => 'logical-key', confirmDiscard, onPublished: value => published.push(value)});
   const select = selectNamed(pane.element, 'Saved draft revision');
   if (initialize) { find(pane.element, 'Refresh saved draft list').click(); await tick(); select.value = 'parent'; select.onchange(); await tick(); }
   const input = walk(pane.element).find(item => item.tagName === 'textarea');
@@ -526,4 +526,111 @@ test('explicit result selection cannot abandon uncertain writing or claim succes
     assert.equal(await h.pane.selectSavedResult(id), false); assert.equal(h.calls.length, count);
     assert.equal(input.value, 'Retain exact writing');
   } finally { h.restore(); }
+});
+
+
+test('writing-only handoff captures defensive effective strings, not just saved inspection', async () => {
+  const h = await harness();
+  try {
+    const clean = h.pane.captureReadOnlyWriting();
+    assert.equal(clean.capsule.schema_version, 1);
+    assert.equal(clean.capsule.owner, 'owner'); assert.equal(clean.capsule.application, 'app');
+    assert.equal(clean.capsule.baselineInspection.draft.id, 'parent');
+    assert.deepEqual(clean.capsule.targets, [{target: 'q', text: 'Saved 🚀\r\ntext'}]);
+    type(h.input, 'Newer e\u0301 😀\r\n<script>');
+    const typed = h.pane.captureReadOnlyWriting();
+    assert.ok(typed.epoch > clean.epoch);
+    assert.equal(typed.capsule.targets[0].text, 'Newer e\u0301 😀\r\n<script>');
+    typed.capsule.targets[0].text = 'Forged'; typed.capsule.baselineInspection.draft.answers[0].text = 'Forged';
+    assert.equal(h.pane.captureReadOnlyWriting().capsule.targets[0].text, h.input.value);
+    assert.equal(h.pane.captureReadOnlyWriting().capsule.baselineInspection.draft.answers[0].text, 'Saved 🚀\r\ntext');
+    assert.equal(h.pane.freezeReadOnlyWriting(clean.epoch), false);
+    assert.equal(h.input.disabled, false);
+    assert.equal(h.pane.freezeReadOnlyWriting(typed.epoch), true);
+    assert.equal(h.input.disabled, true); assert.equal(h.pane.capture().quarantined, true);
+    assert.equal(h.pane.capture().draftInspection, null); assert.equal(h.pane.unresolved, false);
+    const calls = h.calls.length; find(h.pane.element, 'Save new local revision').click(); await tick();
+    assert.equal(h.calls.length, calls); assert.equal(h.input.value, 'Newer e\u0301 😀\r\n<script>');
+  } finally { h.restore(); }
+});
+
+test('writing-only capsule remount is read-only, retains exact text and has no edit operation', async () => {
+  const baselineInspection = inspection();
+  const capsule = {schema_version: 1, owner: 'owner', application: 'app', baselineInspection, targets: [{target: 'q', text: 'Retained 🚀\r\nnewer'}]};
+  const h = await harness({readOnlyWriting: capsule, initialize: false});
+  try {
+    assert.equal(h.input.value, 'Retained 🚀\r\nnewer'); assert.equal(h.input.disabled, true);
+    assert.equal(h.pane.capture().quarantined, true); assert.equal(h.pane.capture().uncertain, false);
+    assert.equal(h.pane.capture().draftInspection, null); assert.equal(h.pane.unresolved, false);
+    assert.equal(h.calls.length, 0); assert.equal(find(h.pane.element, 'Resolve saved edit outcome').disabled, true);
+    capsule.targets[0].text = 'Mutated caller copy'; assert.equal(h.input.value, 'Retained 🚀\r\nnewer');
+    h.pane.retire(); assert.equal(h.input.value, '');
+  } finally { h.restore(); }
+});
+
+for (const mutation of [c => c.owner = 'foreign', c => c.targets.push({...c.targets[0]}), c => c.targets[0].target = 'unknown', c => c.operation = {}]) {
+  test('malformed writing-only capsule is rejected without rendering private strings', async () => {
+    const capsule = {schema_version: 1, owner: 'owner', application: 'app', baselineInspection: inspection(), targets: [{target: 'q', text: 'PRIVATE-READONLY-CANARY'}]}; mutation(capsule);
+    const h = await harness({readOnlyWriting: capsule, initialize: false});
+    try {
+      assert.equal(h.input, undefined); assert.equal(h.pane.element.textContent.includes('PRIVATE-READONLY-CANARY'), false);
+      assert.equal(h.pane.capture().draftInspection, null); assert.equal(h.calls.length, 0);
+    } finally { h.restore(); }
+  });
+}
+
+test('review-specific selection lock denies handlers without blocking unrelated paid result inspection', async () => {
+  let locked = true;
+  const h = await harness({isSelectionLocked: () => locked, respond(path) { if (path.endsWith('/drafts/44444444-4444-4444-8444-444444444444')) return inspection('44444444-4444-4444-8444-444444444444'); }});
+  const id = '44444444-4444-4444-8444-444444444444';
+  try {
+    const count = h.calls.length;
+    assert.equal(await h.pane.selectSavedResult(id), false); assert.equal(h.calls.length, count);
+    locked = false; assert.equal(await h.pane.selectSavedResult(id), true);
+  } finally { h.restore(); }
+});
+
+test('review selection guard fences synchronous select and refresh handlers while retaining the node', async () => {
+  let locked = false; const h = await harness({isSelectionLocked: () => locked});
+  try {
+    const count = h.calls.length, epoch = h.pane.capture().epoch;
+    locked = true; h.pane.syncLocks(); h.select.value = 'attempted-switch'; h.select.onchange();
+    find(h.pane.element, 'Refresh selected saved inspection').click(); await tick();
+    assert.equal(h.select.value, 'parent'); assert.equal(h.calls.length, count);
+    assert.equal(h.pane.capture().epoch, epoch); assert.equal(h.input.value, 'Saved 🚀\r\ntext');
+  } finally { h.restore(); }
+});
+
+test('quarantined result inspection never adopts saved result or replaces retained effective strings', async () => {
+  const id = '44444444-4444-4444-8444-444444444444';
+  const h = await harness({respond(path) { if (path.endsWith(`/drafts/${id}`)) return inspection(id, 'Result saved text'); }});
+  try {
+    type(h.input, 'Retained newer typing'); const ticket = h.pane.captureReadOnlyWriting();
+    assert.equal(h.pane.freezeReadOnlyWriting(ticket.epoch), true);
+    assert.equal(await h.pane.inspectSavedResult(id), true);
+    assert.equal(h.input.value, 'Retained newer typing'); assert.equal(h.input.disabled, true);
+    assert.equal(walk(h.pane.element).find(item => item.tagName === 'textarea'), h.input);
+    assert.equal(h.pane.captureReadOnlyWriting().capsule.baselineInspection.draft.id, 'parent');
+    assert.equal(h.pane.capture().draftInspection, null); assert.equal(h.select.value, id);
+    assert.match(h.pane.element.textContent, /Result saved text/);
+  } finally { h.restore(); }
+});
+
+test('review dispatch fences already pending saved-detail reads without replacing the writing baseline', async () => {
+  const wait = deferred(); let pending = false;
+  const h = await harness({respond(path) { if (pending && path.endsWith('/drafts/parent')) return wait.promise; }});
+  try {
+    pending = true; find(h.pane.element, 'Refresh selected saved inspection').click();
+    assert.equal(h.pane.fenceExternalDispatch(), true);
+    wait.resolve(inspection('parent', 'Late saved replacement')); await tick();
+    assert.equal(h.input.value, 'Saved 🚀\r\ntext'); assert.equal(h.pane.capture().draftInspection.draft.answers[0].text, 'Saved 🚀\r\ntext');
+    assert.equal(h.pane.element.textContent.includes('Late saved replacement'), false);
+  } finally { h.restore(); }
+});
+
+test('edit and writing-only recovery mounts are mutually exclusive before either renders plaintext', async () => {
+  const capsule = {schema_version: 1, owner: 'owner', application: 'app', baselineInspection: inspection(), targets: [{target: 'q', text: 'PRIVATE-CONFLICT-CANARY'}]};
+  const h = await harness({readOnlyWriting: capsule, recovery: {operation: {}, targets: []}, initialize: false});
+  try { assert.equal(h.input, undefined); assert.equal(h.pane.element.textContent.includes('PRIVATE-CONFLICT-CANARY'), false); assert.equal(h.calls.length, 0); }
+  finally { h.restore(); }
 });

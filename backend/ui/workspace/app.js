@@ -4,17 +4,21 @@ import {writingQuestions, sourcePreview} from './questions.js';
 import {activityPane} from './activity.js';
 import {draftingPane} from './drafting-pane.js';
 import {disclosurePane} from './disclosure-pane.js';
+import {reviewPane} from './review-pane.js';
+import {ReviewRegistry} from './review.js';
 import {budgetPane} from './budget-pane.js';
 import {PaidLaunchRegistry, PaidLaunchController} from './paid-launch.js';
 
 let activity = null;
 let writing = null;
 let disclosure = null;
+let review = null;
 let budget = null;
 let paidController = null;
 let applicationLocks = null;
 let connectionPending = false;
 function retireDisclosure() {
+  review?.retire(); review = null;
   disclosure?.retire(); disclosure = null;
   paidController?.retire(); paidController = null;
 }
@@ -36,7 +40,11 @@ const state = {token: '', status: null, initialized: false, profiles: [], owner:
 const api = createClient({token: () => state.token});
 const paidRegistry = new PaidLaunchRegistry({onChange: ({owner, application}) => {
   if (state.owner !== owner || state.application !== application) return;
-  applicationLocks?.(); writing?.syncLocks(); disclosure?.syncOperation();
+  applicationLocks?.(); writing?.syncLocks(); disclosure?.syncOperation(); review?.syncLocks();
+}});
+const reviewRegistry = new ReviewRegistry({onChange: ({owner, application}) => {
+  if (state.owner !== owner || state.application !== application) return;
+  applicationLocks?.(); writing?.syncLocks(); disclosure?.syncOperation(); review?.syncLocks();
 }});
 const workspace = (tail = '') => `/api/workspace/profiles/${encodeURIComponent(state.owner)}${tail}`;
 const evidence = (tail = '') => `/api/evidence/profiles/${encodeURIComponent(state.owner)}${tail}`;
@@ -48,7 +56,9 @@ function notify(message, error = false) {
   $('notice').className = error ? 'error' : '';
 }
 function invalidateDisclosureInput(event) {
+  if (review?.element.contains(event.target)) return;
   if (disclosure && !disclosure.element.contains(event.target)) disclosure.invalidate();
+  review?.invalidate();
 }
 function exactEnvelope(value, names) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -120,9 +130,13 @@ async function refreshLocalConnection() {
   }
 }
 function applicationMutationLocked(owner, application) {
-  return writingRecovery.has(owner, application) || paidRegistry.has(owner, application);
+  return writingRecovery.has(owner, application) || paidRegistry.has(owner, application) || reviewRegistry.isMutationLocked(owner, application);
 }
 function writingBlocksNavigation() {
+  if (reviewRegistry.blocksNavigation(state.owner, state.application)) {
+    notify('A writing review is pending or unresolved. Resolve its exact original request or secure a read-only handoff before changing scope. Reloading loses page memory and is not rollback.', true);
+    return true;
+  }
   if (writing?.unresolved) {
     notify('A writing save is pending or its outcome is unresolved. Resolve the exact saved edit in place before changing scope or reloading. Closing/reloading the page can lose the in-memory operation; no rollback is claimed.', true);
     return true;
@@ -137,7 +151,7 @@ function writingBlocksNavigation() {
 async function revokeCloudPurposes(owner, application) {
   const base = `/api/workspace/profiles/${encodeURIComponent(owner)}`;
   const stateUrl = `${base}/applications/${encodeURIComponent(application)}/drafting-state`, consentUrl = `${base}/consent`;
-  if (state.owner === owner) disclosure?.invalidate();
+  if (state.owner === owner) { disclosure?.invalidate(); review?.invalidate(); }
   const captured = cloudRevocationState(await api(stateUrl), owner, application);
   let result;
   try {
@@ -151,7 +165,7 @@ async function revokeCloudPurposes(owner, application) {
   }
   // Consent is profile-wide; invalidate a new same-owner preview even when
   // navigation has retired the originating action's UI ticket.
-  if (state.owner === owner) disclosure?.invalidate();
+  if (state.owner === owner) { disclosure?.invalidate(); review?.invalidate(); }
   return result;
 }
 async function forgetWritingAfter(kind, action) {
@@ -160,6 +174,7 @@ async function forgetWritingAfter(kind, action) {
     const response = await action();
     if (!recognizedPrivacyDeletion(kind, response)) throw new Error('Deletion outcome is not recognized. Recovery remains retained; inspect before assuming deletion succeeded.');
     paidRegistry.forgetOwner(owner);
+    reviewRegistry.forgetOwner(owner);
     return response;
   });
   // Privacy cleanup survives stale UI tickets, without touching another owner.
@@ -175,7 +190,7 @@ function context() {
 function busy(value) {
   state.busy = value;
   for (const control of document.querySelectorAll('[data-action-control]')) control.disabled = value || control.dataset.writingLocked === 'true';
-  applicationLocks?.(); writing?.syncLocks();
+  applicationLocks?.(); writing?.syncLocks(); disclosure?.syncOperation(); review?.syncLocks();
 }
 function button(label, action, className = '') {
   const result = node('button', label, className);
@@ -255,7 +270,7 @@ function profileForm() {
 }
 function overview() {
   heading('Your application workspace');
-  $('main').append(section('Private, evidence-led preparation', text('This preview uses the Python data services. Inspect saved research, evidence packets, drafts and job/usage history; save immutable local writing edits and export saved text. Applications include explicitly acknowledged generation and unchanged saved-edit assessment, with retained in-page recovery controls. Research launch, human review and supervised browser actions are not wired here. Nothing is submitted for you.'), text('Each friend should run an independent local installation. Profile selection is not account authentication.', 'muted')));
+  $('main').append(section('Private, evidence-led preparation', text('This preview uses the Python data services. Inspect saved research, evidence packets, drafts and job/usage history; save immutable local writing edits and export saved text. Applications include explicitly acknowledged generation and unchanged saved-edit assessment, with retained in-page recovery controls. Human writing review is a separate local acknowledgement, not factual verification or browser permission. Research launch and supervised browser actions are not wired here. Nothing is submitted for you.'), text('Each friend should run an independent local installation. Profile selection is not account authentication.', 'muted')));
   if (!state.detail) { $('main').append(section('Start with your own experience', profileForm())); return; }
   const detail = state.detail;
   $('main').append(section('Next steps', text(`${detail.interview_answers.length} interview answers · ${detail.proposals.filter(p => p.status === 'pending').length} pending proposals · ${detail.applications.length} applications`), text('Save a story, confirm only accurate canonical facts, and add the exact employer questions. You can skip onboarding or finish early.'), link('#interview', 'Continue interview'), text('Evidence and typed personal values are stored separately. Uploading, approving wording or recording an outcome does not confirm a new fact.', 'muted')));
@@ -354,7 +369,7 @@ async function applications(create = false) {
   const inputForm = applicationForm(application), appForms = [inputForm], lockNotice = text('', 'warning');
   const lockForms = () => {
     const locked = applicationMutationLocked(application.profile_id, application.application_id);
-    lockNotice.textContent = locked ? 'Unresolved writing or paid operation: application inputs/history and new writing saves are locked. Inspect, export, reconcile/status/cancel, revoke cloud purposes or delete this scope explicitly. No rollback, non-transmission or refund is assumed.' : '';
+    lockNotice.textContent = locked ? 'Retained writing, paid or review operation: application inputs/history and new writing saves are locked. Inspect, export, reconcile/status/cancel, revoke cloud purposes or delete this scope explicitly. No rollback, non-transmission or refund is assumed.' : '';
     for (const form of appForms) for (const control of form.querySelectorAll('input,textarea,select,button')) {
       control.dataset.writingLocked = locked ? 'true' : 'false'; control.disabled = state.busy || locked;
     }
@@ -370,12 +385,14 @@ async function applications(create = false) {
     }
     notify('All three cloud purposes were recorded revoked. Future dispatch remains server-checked; already transmitted data, cancellation, refund and employer actions are not assumed.');
   }, null, true), 'danger');
-  $('main').append(section(`${application.company} · ${application.role}`, ...(url ? [link(url, 'Inspect the public vacancy')] : []), text('Inspect stored research and packets, then separately acknowledge generation or unchanged saved-edit assessment. Local edits create unassessed immutable revisions. Research launch, human review, form filling and submission remain unavailable.', 'warning'), inputForm, lockNotice, revoke));
+  $('main').append(section(`${application.company} · ${application.role}`, ...(url ? [link(url, 'Inspect the public vacancy')] : []), text('Inspect stored research and packets, then separately acknowledge generation or unchanged saved-edit assessment. Local edits create unassessed immutable revisions. Inspect exact saved writing before separately recording a local human review. This does not verify facts or authorize browser actions. Research launch, form filling and submission remain unavailable.', 'warning'), inputForm, lockNotice, revoke));
   activity = activityPane({api, owner: state.owner, application: application.application_id});
   $('main').append(activity.element);
   writing = draftingPane({api, exportText: createTextClient({token: () => state.token}),
     owner: state.owner, application: application.application_id, edits, notify,
     recovery: writingRecovery.get(state.owner, application.application_id),
+    readOnlyWriting: reviewRegistry.recovery(owner, appId),
+    isSelectionLocked: () => reviewRegistry.isMutationLocked(owner, appId),
     isMutationLocked: () => applicationMutationLocked(application.profile_id, application.application_id),
     onHandoff: capsule => {
       if (state.owner !== application.profile_id || state.application !== application.application_id) return false;
@@ -383,28 +400,51 @@ async function applications(create = false) {
       if (retained) lockForms();
       return retained;
     },
-    onCaptureChange: () => disclosure?.invalidate(),
+    onCaptureChange: () => { disclosure?.invalidate(); review?.invalidate(); },
     onPublished: published => {
-      if (state.owner === published.owner && state.application === published.application) advanceApplicationOutput(application, published);
+      if (state.owner === published.owner && state.application === published.application) { advanceApplicationOutput(application, published); review?.invalidate(); }
     }});
   writing.element.classList.add('application-writing');
   $('main').append(writing.element);
   paidController = new PaidLaunchController({api, owner, application: appId, registry: paidRegistry,
+    competingMutationLocked: () => state.owner !== owner || state.application !== appId || state.busy || writingRecovery.has(owner, appId) || reviewRegistry.isMutationLocked(owner, appId),
     update: (view, data, error) => disclosure?.updatePaid(view, data, error),
     onPublished: published => {
       if (state.owner !== published.owner) return;
       const target = state.detail?.applications.find(item => item.application_id === published.application);
       if (target) advanceApplicationOutput(target, published);
+      if (state.application === published.application) review?.invalidate();
     }});
   disclosure = disclosurePane({api, owner: state.owner, application: application.application_id,
-    getCapture: () => writing?.capture(), isDirty: () => state.dirty, paidController, notify,
+    getCapture: () => writing?.capture(), isDirty: () => state.dirty, isBusy: () => state.busy,
+    isMutationLocked: () => reviewRegistry.isMutationLocked(owner, appId), paidController, notify,
     onSelectResult: async ({owner, application, draftId}) => {
       if (state.owner !== owner || state.application !== application || !writing) return false;
       return writing.selectSavedResult(draftId);
     }});
   disclosure.element.classList.add('application-writing');
   $('main').append(disclosure.element);
-  disclosure.syncOperation(); writing.syncLocks();
+  review = reviewPane({api, owner, application: appId, registry: reviewRegistry,
+    getContext: () => state.owner !== owner || state.application !== appId ? null : ({owner, application: appId,
+      writing: writing?.capture(), dirty: state.dirty, busy: state.busy,
+      competingMutationLocked: writingRecovery.has(owner, appId) || paidRegistry.has(owner, appId)}),
+    beforeDispatch: () => {
+      if (state.owner !== owner || state.application !== appId || !writing?.fenceExternalDispatch()) throw new Error('The selected writing scope changed.');
+      disclosure?.invalidate(); applicationLocks?.(); writing?.syncLocks();
+    },
+    onPublished: published => {
+      if (state.owner !== published.owner) return;
+      const target = state.detail?.applications.find(item => item.application_id === published.application);
+      if (target) advanceApplicationOutput(target, published);
+    },
+    captureWriting: () => writing?.captureReadOnlyWriting(),
+    freezeWriting: epoch => state.owner === owner && state.application === appId && writing?.freezeReadOnlyWriting(epoch) === true,
+    selectResult: async (id, {readOnly}) => {
+      if (state.owner !== owner || state.application !== appId || !writing) return false;
+      return readOnly ? writing.inspectSavedResult(id) : writing.selectSavedResult(id);
+    }});
+  $('main').append(review.element);
+  disclosure.syncOperation(); writing.syncLocks(); review.syncLocks();
   const ticket = gate.capture('history');
   const data = await api(workspace(`/applications/${application.application_id}/history`));
   if (!gate.current(ticket)) return;
@@ -488,7 +528,7 @@ async function inspectEvidence() {
 function settings() {
   heading('Settings and privacy');
   budget = budgetPane({api, owner: state.owner, edits,
-    onConfigurationChanged: () => disclosure?.invalidate(), notify});
+    onConfigurationChanged: () => { disclosure?.invalidate(); review?.invalidate(); }, notify});
   $('main').append(budget.element);
   $('main').append(section('Writing preferences', form('Save explicit preferences', element => operation(() => api(workspace(), {method: 'PATCH', body: {expected_metadata_revision: revisions().metadata, writing_preferences: values(element).preferences}}), refreshAfter, element), field('preferences', 'Your preferred voice and writing style', {type: 'textarea', value: state.detail.profile.writing_preferences, maxLength: 10000}))));
   const consent = state.detail.consent;
@@ -584,7 +624,7 @@ $('profile').onchange = event => {
 };
 $('main').addEventListener('input', invalidateDisclosureInput);
 window.addEventListener('hashchange', navigate);
-window.addEventListener('beforeunload', event => { if (state.dirty || writingRecovery.size || paidRegistry.size) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('beforeunload', event => { if (state.dirty || writingRecovery.size || paidRegistry.size || reviewRegistry.needsUnloadWarning()) { event.preventDefault(); event.returnValue = ''; } });
 const connection = node('button', 'Refresh local connection', 'secondary');
 connection.type = 'button'; connection.disabled = true; connection.onclick = refreshLocalConnection;
 document.querySelector('header').append(connection);
@@ -601,7 +641,7 @@ async function start() {
     state.owner = list.profiles.some(profile => profile.profile_id === remembered) ? remembered : '';
     state.route = routes.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'overview';
     state.initialized = true; $('profile').disabled = false; connection.disabled = false;
-    context(); await reloadWithMessage('Local preview ready. Inspect saved research, packets and writing; separately acknowledge paid generation/assessment, save local edits or export saved text. Human review and browser actions remain unavailable.');
+    context(); await reloadWithMessage('Local preview ready. Inspect saved research, packets and writing; separately acknowledge paid generation/assessment, save local edits or export saved text. Exact writing review is available; browser filling and submission remain unavailable.');
   } catch (error) {
     if (gate.current(ticket)) {
       notify(error.message, true);

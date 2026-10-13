@@ -203,11 +203,11 @@ function immutableResult(a, b) {
 }
 
 export class PaidLaunchController {
-  #api; #owner; #application; #registry; #update; #onPublished; #keyFactory; #base; #token; #epoch; #identity; #minimumAdmission = 0; #retired = false;
-  constructor({api, owner, application, registry, update, onPublished, keyFactory = () => crypto.randomUUID()}) {
+  #api; #owner; #application; #registry; #update; #onPublished; #keyFactory; #base; #token; #epoch; #identity; #competingMutationLocked; #minimumAdmission = 0; #retired = false;
+  constructor({api, owner, application, registry, update, onPublished, competingMutationLocked = () => false, keyFactory = () => crypto.randomUUID()}) {
     require(uuid(owner) && uuid(application)); stateOf(registry);
     this.#api = api; this.#owner = owner; this.#application = application; this.#registry = registry; this.#update = update;
-    this.#onPublished = onPublished; this.#keyFactory = keyFactory;
+    this.#onPublished = onPublished; this.#keyFactory = keyFactory; this.#competingMutationLocked = competingMutationLocked;
     this.#base = `/api/workspace/profiles/${encodeURIComponent(owner)}/applications/${encodeURIComponent(application)}`;
     const state = stateOf(registry);
     this.#identity = ++state.controllerSequence;
@@ -235,6 +235,7 @@ export class PaidLaunchController {
   async launch(value, acknowledged) {
     if (this.#retired) return false;
     try {
+      require(this.#competingMutationLocked() === false);
       require(this.#epoch === (stateOf(this.#registry).epochs.get(this.#owner) || 0) && acknowledged === true && !this.#registry.has(this.#owner, this.#application));
       const capture = validateCapture(value, this.#owner, this.#application);
       this.#rearm(capture.admission.admission_revision);
@@ -272,6 +273,8 @@ export class PaidLaunchController {
       op.state = 'pending'; op.handedOff = false; changed(this.#registry, op); this.#emit('operation', summary(op));
       try {
         // Both notification hooks may synchronously forget this owner. Fence immediately before transport.
+        if (!active(this.#registry, this.#token, ticket)) return;
+        if (initial) require(this.#competingMutationLocked() === false);
         if (!active(this.#registry, this.#token, ticket)) return;
         const response = await this.#api(captured.endpoint, {method: 'POST', body: copy(captured.wrapper)});
         op = active(this.#registry, this.#token, ticket); if (!op) return;

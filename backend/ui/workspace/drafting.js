@@ -40,10 +40,56 @@ function reviewReference(r, d) {
     && uuid(s.record_id) && (s.unit_id === null || uuid(s.unit_id)) && natural(s.start) && Number.isSafeInteger(s.end) && s.end > s.start
     && identifier(s.excerpt) && Array.from(s.excerpt).length === s.end - s.start && digest(s.text_sha256));
 }
+// Shared disclosure structure checks. Digests are opaque server correlations;
+// this does not certify factual support or recompute canonical server hashes.
+export function validateReviewDisclosure(value) {
+  const d = copy(value);
+  require(exact(d, ['schema_version', 'profile_id', 'application_id', 'operation', 'parent_draft_id', 'parent_publication_id', 'parent_publication_sha256', 'batch_id', 'batch_sha256', 'research_run_id', 'pre_revisions', 'post_revisions', 'text_sha256', 'ledger_sha256', 'cover_letter', 'answers', 'ledger', 'canonical_questions', 'cover_letter_target', 'manual_requirements', 'style_notes', 'warnings'])
+    && d.schema_version === 1 && d.operation === 'human_writing_review'
+    && [d.profile_id, d.application_id, d.parent_draft_id, d.parent_publication_id, d.batch_id, d.research_run_id].every(uuid)
+    && [d.parent_publication_sha256, d.batch_sha256, d.text_sha256, d.ledger_sha256].every(digest)
+    && typeof d.cover_letter === 'string' && Array.from(d.cover_letter).length <= 100000
+    && Array.isArray(d.answers) && d.answers.length <= 12 && Array.isArray(d.ledger)
+    && Array.isArray(d.canonical_questions) && d.canonical_questions.length <= 12 && Array.isArray(d.manual_requirements)
+    && strings(d.style_notes)
+    && same(d.warnings, ['WRITING_ONLY', 'AUTOMATED_SUPPORT_FALLIBLE', 'NOT_FACT_CONFIRMATION', 'MANUAL_AND_ATTACHMENTS_NOT_REVIEWED', 'NO_BROWSER_AUTHORIZATION']));
+  validateVector(d.pre_revisions); validateVector(d.post_revisions);
+  require(d.pre_revisions.application_output < Number.MAX_SAFE_INTEGER
+    && same(d.post_revisions, {...d.pre_revisions, application_output: d.pre_revisions.application_output + 1}));
+  const ids = new Set();
+  for (const q of d.canonical_questions) { reviewQuestion(q); require(q.id !== 'cover_letter' && !ids.has(q.id)); ids.add(q.id); }
+  if (d.cover_letter_target !== null) { reviewQuestion(d.cover_letter_target); require(d.cover_letter_target.id === 'cover_letter' && d.cover_letter_target.type === 'writing' && d.cover_letter_target.max_words !== null); }
+  const questions = [...d.canonical_questions, ...(d.cover_letter_target === null ? [] : [d.cover_letter_target])], manual = new Set();
+  for (const m of d.manual_requirements) {
+    require(exact(m, ['schema_version', 'question_id', 'reason']) && m.schema_version === 1 && identifier(m.question_id)
+      && Array.from(m.question_id).length <= 200 && identifier(m.reason) && !manual.has(m.question_id)
+      && questions.some(q => q.id === m.question_id && !q.required)); manual.add(m.question_id);
+  }
+  require(questions.every(q => q.type === 'writing' || manual.has(q.id)));
+  const expected = questions.filter(q => q.type === 'writing' && !manual.has(q.id) && q.id !== 'cover_letter');
+  require(expected.length === d.answers.length);
+  const texts = new Map([['cover_letter', d.cover_letter]]);
+  d.answers.forEach((a, i) => { require(exact(a, ['schema_version', 'question_id', 'text', 'packet_id']) && a.schema_version === 1
+    && a.question_id === expected[i].id && uuid(a.packet_id) && typeof a.text === 'string' && Array.from(a.text).length <= 100000); texts.set(a.question_id, a.text); });
+  for (const q of questions.filter(q => q.type === 'writing' && !manual.has(q.id))) {
+    const content = texts.get(q.id), words = content.split(/[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/u).filter(Boolean).length;
+    require((!q.required || words > 0) && (q.max_words === null || words <= q.max_words) && (q.max_chars === null || Array.from(content).length <= q.max_chars));
+  }
+  require(d.cover_letter_target !== null || d.cover_letter === '');
+  for (const span of d.ledger) {
+    require(exact(span, ['schema_version', 'target', 'start', 'end', 'excerpt', 'kind', 'assessment', 'citations', 'integrity']) && span.schema_version === 1
+      && texts.has(span.target) && natural(span.start) && Number.isSafeInteger(span.end) && span.end > span.start && identifier(span.excerpt)
+      && Array.from(texts.get(span.target)).slice(span.start, span.end).join('') === span.excerpt && Array.from(span.excerpt).length === span.end - span.start
+      && ['personal', 'employer', 'inference'].includes(span.kind) && span.assessment === 'supported' && span.integrity === 'valid' && Array.isArray(span.citations) && span.citations.length > 0);
+    for (const ref of span.citations) { reviewReference(ref, d); require(span.kind === 'inference' || ref.kind === (span.kind === 'personal' ? 'confirmed_fact' : 'employer')); }
+  }
+  return d;
+}
+
 // Structural correlation only: the backend reconstructs canonical hashes and the
 // original evidence graph. Browser equality is neither entailment nor approval.
 function validateReview(value) {
-  const d = value.draft, p = value.publication, r = p.request, disclosure = p.disclosure, snapshot = value.review_snapshot;
+  const d = value.draft, p = value.publication, r = p.request, disclosure = validateReviewDisclosure(p.disclosure), snapshot = value.review_snapshot;
   require(exact(value, ['schema_version', 'draft', 'publication', 'publication_sha256', 'text_sha256', 'ledger_sha256', 'current', 'reason_codes', 'canonical_questions', 'writing_targets', 'manual_requirements', 'semantic_assessment', 'writing_review_ready', 'reviewed_current', 'review_snapshot', 'review_eligible', 'browser_eligible', 'capabilities']));
   require(exact(d, ['schema_version', 'profile_id', 'application_id', 'id', 'revisions', 'research_run_id', 'cover_letter', 'answers', 'ledger', 'assessment_state', 'inventory_complete', 'created_at'])
     && [d.profile_id, d.application_id, d.id, d.research_run_id].every(uuid) && utc(d.created_at)
@@ -80,41 +126,10 @@ function validateReview(value) {
     && typeof value.reviewed_current === 'boolean' && value.reviewed_current === value.current && value.review_eligible === false && value.browser_eligible === false
     && value.semantic_assessment === 'fallible_not_release_qualified'
     && exact(value.capabilities, ['generation', 'edit', 'reassess', 'review']) && Object.values(value.capabilities).every(flag => flag === true));
-  require(Array.isArray(value.canonical_questions) && value.canonical_questions.length <= 12 && Array.isArray(value.manual_requirements));
-  const questionIds = new Set();
-  for (const q of value.canonical_questions) { reviewQuestion(q); require(q.id !== 'cover_letter' && !questionIds.has(q.id)); questionIds.add(q.id); }
-  if (disclosure.cover_letter_target !== null) {
-    reviewQuestion(disclosure.cover_letter_target);
-    require(disclosure.cover_letter_target.id === 'cover_letter' && disclosure.cover_letter_target.type === 'writing' && disclosure.cover_letter_target.max_words !== null);
-  }
-  const allQuestions = [...value.canonical_questions, ...(disclosure.cover_letter_target === null ? [] : [disclosure.cover_letter_target])];
-  const manualQuestionIds = value.manual_requirements.map(m => m?.question_id);
-  const expectedQuestions = allQuestions.filter(q => q.type === 'writing' && !manualQuestionIds.includes(q.id));
-  require(same(value.writing_targets.map(t => t.question), expectedQuestions));
+  const manualIds = new Set(disclosure.manual_requirements.map(m => m.question_id));
+  const questions = [...disclosure.canonical_questions, ...(disclosure.cover_letter_target === null ? [] : [disclosure.cover_letter_target])];
+  require(same(value.writing_targets.map(t => t.question), questions.filter(q => q.type === 'writing' && !manualIds.has(q.id))));
   for (const t of value.writing_targets) require(exact(t, ['question', 'packet_id']) && uuid(t.packet_id));
-  for (const a of d.answers) require(exact(a, ['schema_version', 'question_id', 'text', 'packet_id']) && Array.from(a.text).length <= 100000);
-  const manualIds = new Set();
-  for (const m of value.manual_requirements) {
-    require(exact(m, ['schema_version', 'question_id', 'reason']) && m.schema_version === 1 && identifier(m.question_id) && Array.from(m.question_id).length <= 200
-      && identifier(m.reason) && !manualIds.has(m.question_id) && allQuestions.some(q => q.id === m.question_id && !q.required));
-    manualIds.add(m.question_id);
-  }
-  require(allQuestions.every(q => q.type === 'writing' || manualIds.has(q.id)));
-  const texts = new Map(d.answers.map(a => [a.question_id, a.text])); texts.set('cover_letter', d.cover_letter);
-  for (const q of expectedQuestions) {
-    const content = texts.get(q.id);
-    // Match Python str.split whitespace, not JavaScript's different FEFF set.
-    const words = content.split(/[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/u).filter(Boolean).length;
-    require((!q.required || words > 0) && (q.max_words === null || words <= q.max_words)
-      && (q.max_chars === null || Array.from(content).length <= q.max_chars));
-  }
-  for (const span of d.ledger) {
-    require(exact(span, ['schema_version', 'target', 'start', 'end', 'excerpt', 'kind', 'assessment', 'citations', 'integrity']) && span.schema_version === 1
-      && texts.has(span.target) && natural(span.start) && Number.isSafeInteger(span.end) && span.end > span.start && identifier(span.excerpt)
-      && Array.from(texts.get(span.target)).slice(span.start, span.end).join('') === span.excerpt && Array.from(span.excerpt).length === span.end - span.start
-      && ['personal', 'employer', 'inference'].includes(span.kind) && span.assessment === 'supported' && span.integrity === 'valid' && Array.isArray(span.citations) && span.citations.length > 0);
-    for (const ref of span.citations) { reviewReference(ref, d); require(span.kind === 'inference' || ref.kind === (span.kind === 'personal' ? 'confirmed_fact' : 'employer')); }
-  }
 }
 
 function validateInspection(value) {
@@ -226,6 +241,7 @@ export class DraftingController {
     }
     catch (error) { if (current()) this.#update(slot, null, error); }
   }
+  invalidateReads() { this.#invalidate('packet-list', 'packet-detail', 'packet-question', 'draft-list', 'draft-detail', 'export'); }
   packets() { return this.#request('packet-list', `${this.#base}/packets`); }
   packet(id) {
     if (this.#retired) return;

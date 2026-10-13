@@ -209,11 +209,36 @@ Neither a stored hash nor an eligible research run establishes semantic support.
 No research-launch, paid retry, drafting, review or browser action is introduced
 by this inspection increment. Unqualified capabilities stay unavailable.
 
+### Exact writing-review controls — S6-C
+
+An inline panel beside saved writing shows the exact configured cover letter,
+ordered answers, canonical limits, fallible support ledger/citations, optional
+manual exclusions and five writing-only warnings. No scroll/time heuristic claims
+to prove reading. An initially unchecked acknowledgement and a separate record
+button are deliberate local actions, not fact confirmation or browser authority.
+
+Every effective input/capture/context change invalidates the accepted preview.
+The controller freezes the original parent, endpoint, key and acknowledged body
+before transport; preview epochs and operation-settlement identities are distinct.
+Private review recovery is separate from paid/edit recovery. Any post-send error
+remains uncertain, with explicit exact-request replay and no automatic retry.
+Newer typing keeps its node and baseline. Read-only handoff captures effective
+strings and freezes their epoch before granting navigation; quarantine survives
+replay/remount. Successful results never automatically replace the editor.
+
+Compose mutation/navigation/unload predicates across the separate operations.
+Only new competing paid operations are guarded, not their original recovery.
+Recognized deletion clears the captured owner's private entries and detached DOM;
+revocation invalidates previews without pretending an uncertain commit vanished.
+Output notifications are scoped, monotonic and output-only. Current/historical
+writing review is plain language, never an application-approved badge. Actual
+browser, semantic quality and release evidence remain separately reported.
+
 ## Open questions
 - [ ] Later browser autofill platform coverage; owner product; out of current milestone.
 - [ ] Later authenticated hosted product; owner product; no impact on local-first implementation.
 - [ ] Real user's provider credentials/model access; owner user at local setup; no effect on offline/test implementation, live verification remains conditional.
-- [ ] Paid drafting/reassessment UI and exact human-review envelopes; owner API/storage; separate next increments, not authorized by local edit/export UI.
+- [x] Separate acknowledged paid drafting/reassessment and exact writing-review UI envelopes; implemented preview, not provider/quality/release qualification.
 - [ ] Docker, quality and independent friend/companion install evidence; owner delivery/verifier; preview must not imply qualified release.
 
 ## Python workspace integration — S0 contract boundary

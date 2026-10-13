@@ -73,7 +73,7 @@ test('actual root privacy helper validates before purging both owners even acros
     writingRecovery.retain(owner, 'app', {operation: {parentDraftId: 'parent', parentCapture: {draft: {id: 'parent', profile_id: owner, application_id: 'app'}}, body: {idempotency_key: 'retained'}}, targets: []});
     let writingRetired = 0, disclosureRetired = 0, budgetRetired = 0;
     const helper = new Function('state', 'writingRecovery', 'paidRegistry', 'recognizedPrivacyDeletion', 'startWriting', 'retireDisclosure', 'retireBudget',
-      `let writing = startWriting; ${definition}; return forgetWritingAfter;`)(state, writingRecovery, {forgetOwner(id) { paid.delete(id); }}, recognizedPrivacyDeletion,
+      `const reviewRegistry = {forgetOwner() {}}; let writing = startWriting; ${definition}; return forgetWritingAfter;`)(state, writingRecovery, {forgetOwner(id) { paid.delete(id); }}, recognizedPrivacyDeletion,
       {retire() { writingRetired++; }}, () => { disclosureRetired++; }, () => { budgetRetired++; });
     const wait = deferred(), result = helper(kind, () => wait.promise);
     if (switched) state.owner = application;
@@ -97,7 +97,7 @@ test('direct revocation captures URLs and revision before awaits, never purges o
     const wait = deferred(), calls = [], state = {owner, application}, edits = new EditBuffers(), other = {};
     edits.changed(other); let invalidated = 0;
     const api = async (path, options) => { calls.push({path, options}); return options ? malformed ? {deleted: true} : revocation() : wait.promise; };
-    const revoke = new Function('api', 'disclosure', 'state', 'cloudRevocationState', 'recognizedCloudRevocation', `${definition};return revokeCloudPurposes;`)(
+    const revoke = new Function('api', 'disclosure', 'state', 'cloudRevocationState', 'recognizedCloudRevocation', `const review = null; ${definition};return revokeCloudPurposes;`)(
       api, {invalidate() { invalidated++; }}, state, validators.cloudRevocationState, validators.recognizedCloudRevocation);
     const pending = revoke(state.owner, state.application);
     assert.equal(invalidated, 1); state.owner = application; state.application = owner;
@@ -131,7 +131,7 @@ test('actual navigation guard permits only known or explicitly handed-off settle
   const definition = app.slice(app.indexOf('function writingBlocksNavigation('), app.indexOf('async function revokeCloudPurposes('));
   for (const writingPending of [false, true]) for (const summary of [null, {state: 'pending'}, {state: 'unknown'}, {state: 'unknown', handedOff: true}, {state: 'known'}]) {
     let notices = 0;
-    const guard = new Function('writing', 'paidController', 'notify', `return (${definition.trim()});`)(
+    const guard = new Function('writing', 'paidController', 'notify', `const reviewRegistry = {blocksNavigation:()=>false},state={owner:"",application:""}; return (${definition.trim()});`)(
       {unresolved: writingPending}, {snapshot: () => summary}, () => { notices++; });
     const blocked = writingPending || summary?.state === 'pending' || summary?.state === 'unknown' && summary.handedOff !== true;
     assert.equal(guard(), Boolean(blocked)); assert.equal(notices, blocked ? 1 : 0);
@@ -163,7 +163,7 @@ test('composed form locks recompute on busy(false) and unlock only after matchin
   const lockForms = new Function('application', 'appForms', 'lockNotice', 'applicationMutationLocked', 'state', `${definition}; return lockForms;`)(
     {profile_id: owner, application_id: application}, [{querySelectorAll: () => controls}], notice, () => locked, state);
   const busyDefinition = app.slice(app.indexOf('function busy('), app.indexOf('function button('));
-  const busy = new Function('state', 'document', 'applicationLocks', 'writing', `return (${busyDefinition.trim()});`)(
+  const busy = new Function('state', 'document', 'applicationLocks', 'writing', `const disclosure = null, review = null; return (${busyDefinition.trim()});`)(
     state, {querySelectorAll: () => controls}, lockForms, {syncLocks() { syncs++; }});
   busy(true); busy(false); assert.ok(controls.every(control => control.disabled)); assert.equal(syncs, 2);
   locked = false; busy(false); assert.ok(controls.every(control => !control.disabled)); assert.equal(notice.textContent, '');
@@ -174,7 +174,7 @@ test('malformed current revocation state never sends a consent POST or retries',
   const definition = app.slice(app.indexOf('async function revokeCloudPurposes('), app.indexOf('async function forgetWritingAfter('));
   for (const result of [null, {}, {...draftingState(), profile_id: application}]) {
     const calls = [];
-    const run = new Function('api', 'disclosure', 'state', 'cloudRevocationState', 'recognizedCloudRevocation', `${definition};return revokeCloudPurposes;`)(
+    const run = new Function('api', 'disclosure', 'state', 'cloudRevocationState', 'recognizedCloudRevocation', `const review = null; ${definition};return revokeCloudPurposes;`)(
       async (path, options) => { calls.push({path, options}); return result; }, null, {owner}, validators.cloudRevocationState, validators.recognizedCloudRevocation);
     await assert.rejects(run(owner, application)); assert.equal(calls.length, 1); assert.equal(calls[0].options, undefined);
   }
@@ -205,7 +205,7 @@ test('recognized revocation invalidates new same-owner previews acquired during 
         return options ? recognized ? revocation() : {...revocation(), granted: true} : draftingState();
       };
       const helper = new Function('api', 'state', 'initialDisclosure', 'cloudRevocationState', 'recognizedCloudRevocation',
-        `let disclosure = initialDisclosure; ${definition}; return {run: revokeCloudPurposes, replace(value) {disclosure = value;}};`)(
+        `const review = null; let disclosure = initialDisclosure; ${definition}; return {run: revokeCloudPurposes, replace(value) {disclosure = value;}};`)(
         api, state, {invalidate() { initialInvalidations++; }}, validators.cloudRevocationState, validators.recognizedCloudRevocation);
       const pending = helper.run(owner, application);
       await entered.promise;
@@ -233,7 +233,7 @@ test('recognized profile revocation invalidates current same-owner disclosure be
   edits.changed(form); const capturedEdit = edits.capture(form), response = deferred(), consentEntered = deferred();
   let initialInvalidations = 0, currentInvalidations = 0, after = 0; const notices = [];
   const helper = new Function('api', 'state', 'initialDisclosure', 'cloudRevocationState', 'recognizedCloudRevocation',
-    `let disclosure = initialDisclosure; ${revokeDefinition}; return {run: revokeCloudPurposes, replace(value) {disclosure = value;}};`)(
+    `const review = null; let disclosure = initialDisclosure; ${revokeDefinition}; return {run: revokeCloudPurposes, replace(value) {disclosure = value;}};`)(
     async (_path, options) => { if (!options) return draftingState(); consentEntered.resolve(); return response.promise; }, state,
     {invalidate() { initialInvalidations++; }}, validators.cloudRevocationState, validators.recognizedCloudRevocation);
   const operation = new Function('state', 'gate', 'edits', 'busy', 'offerReload', 'notify', `return (${operationDefinition.trim()});`)(
@@ -249,11 +249,12 @@ test('recognized profile revocation invalidates current same-owner disclosure be
   assert.deepEqual(edits.capture(form), capturedEdit); assert.equal(edits.dirty, true);
 });
 
-test('Overview describes bounded explicit paid controls without claiming research, review or browser support', async () => {
+test('Overview describes bounded paid and local human-review controls without claiming research or browser support', async () => {
   const app = await source(), overview = app.slice(app.indexOf('function overview('), app.indexOf('async function interview('));
   assert.match(overview, /explicitly acknowledged generation/);
   assert.match(overview, /saved-edit assessment/);
-  assert.match(overview, /Research launch, human review and supervised browser actions are not wired/);
+  assert.match(overview, /Human writing review is a separate local acknowledgement, not factual verification or browser permission/);
+  assert.match(overview, /Research launch and supervised browser actions are not wired/);
   assert.doesNotMatch(overview, /Research launch, paid drafting\/reassessment/);
 });
 
@@ -262,7 +263,7 @@ test('unverified revocation transport outcome directs explicit inspection withou
   const definition = app.slice(app.indexOf('async function revokeCloudPurposes('), app.indexOf('async function forgetWritingAfter('));
   for (const status of [undefined, 409, 503]) {
     let calls = 0, invalidations = 0;
-    const run = new Function('api', 'disclosure', 'state', 'cloudRevocationState', 'recognizedCloudRevocation', `${definition};return revokeCloudPurposes;`)(
+    const run = new Function('api', 'disclosure', 'state', 'cloudRevocationState', 'recognizedCloudRevocation', `const review = null; ${definition};return revokeCloudPurposes;`)(
       async (_path, options) => { calls++; if (!options) return draftingState(); throw Object.assign(new Error('Synthetic transport failure'), {status}); },
       {invalidate() { invalidations++; }}, {owner}, validators.cloudRevocationState, validators.recognizedCloudRevocation);
     await assert.rejects(run(owner, application), error => {
