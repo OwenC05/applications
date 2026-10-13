@@ -1,6 +1,8 @@
 """Consent-gated durable generation; inspection never loads retrieval models."""
 import json
 import os
+import sqlite3
+from dataclasses import dataclass, field
 
 from ..contracts import EvidenceError
 from ..domain import contracts as c
@@ -18,6 +20,33 @@ from .runtime_contracts import (
     draft_request_hash,
 )
 from .schemas import PlanOutput
+
+
+@dataclass(frozen=True)
+class LineageCounts:
+    edits: int
+    assessments: int
+    reviews: int
+    total: int
+
+
+@dataclass(frozen=True)
+class _AssociationEntry:
+    association: tuple
+    counts: LineageCounts
+
+
+@dataclass
+class _AssociationContext:
+    db: sqlite3.Connection
+    owner: str
+    application_id: str
+    changes: int
+    validated_by_draft: dict = field(default_factory=dict)
+    # Private read-only collections, installed only after complete validation.
+    # Foreign candidate dictionaries are not exposed or deeply immutable.
+    publication_rows: tuple | None = None
+    discovery_rows: dict | None = None
 
 
 class DraftingService:
@@ -243,6 +272,14 @@ class DraftingService:
         from .assessments import DraftAssessments
         return DraftAssessments(self).run(job_id, worker_id, fence)
 
+    def review_preview(self, owner, application_id, parent_id, request):
+        from .reviews import DraftReviews
+        return DraftReviews(self).preview(owner, application_id, parent_id, request)
+
+    def review(self, owner, application_id, parent_id, request):
+        from .reviews import DraftReviews
+        return DraftReviews(self).review(owner, application_id, parent_id, request)
+
     def _edit_depth(self, publication):
         if type(publication) is DraftPublication:
             return 0
@@ -251,6 +288,9 @@ class DraftingService:
             return publication.edit_depth
         from .assessment_contracts import AssessmentPublication
         if type(publication) is AssessmentPublication:
+            return publication.edit_depth
+        from .review_contracts import ReviewPublication
+        if type(publication) is ReviewPublication:
             return publication.edit_depth
         conflict('Draft publication lineage type mismatch')
 
@@ -267,48 +307,120 @@ class DraftingService:
             parts.append(questions[answer['question_id']] + '\n' + answer['text'])
         return '\n\n'.join(parts)
 
-    def _association(self, db, owner, application_id, draft_id, *, visited=()):
-        if draft_id in visited or len(visited) > 128:
+    def _association_context(self, db, owner, application_id):
+        context = _AssociationContext(db, owner, application_id, db.total_changes)
+        self._check_association_context(db, owner, application_id, context)
+        return context
+
+    def _check_association_context(self, db, owner, application_id, context):
+        try:
+            valid = (type(context) is _AssociationContext and context.db is db
+                     and (context.owner, context.application_id) == (owner, application_id)
+                     and db.in_transaction and context.changes == db.total_changes)
+        except sqlite3.ProgrammingError:
+            valid = False
+        if not valid:
+            conflict('Draft association context is outside its unchanged transaction')
+
+    def _association_publication_rows(self, db, owner, application_id, draft_id, *, context):
+        self._check_association_context(db, owner, application_id, context)
+        if context.discovery_rows is None:
+            grouped = {}
+            for identifier, data in db.execute(
+                    "SELECT id,data FROM records WHERE owner=? AND kind='workspace:draft_dependency'", (owner,)):
+                raw = json.loads(data)
+                if isinstance(raw, dict) and isinstance(raw.get('draft_id'), str):
+                    grouped.setdefault(raw['draft_id'], []).append((identifier, data))
+            rows = {key: tuple(values) for key, values in grouped.items()}
+            self._check_association_context(db, owner, application_id, context)
+            context.discovery_rows = rows
+        self._check_association_context(db, owner, application_id, context)
+        return context.discovery_rows.get(draft_id, ())
+
+    def _project_lineage(self, entry, origin):
+        publication = entry.association[1]
+        parent_origin = getattr(publication, 'origin', 'generation')
+        if (origin not in ('edit', 'assessment', 'review')
+                or origin == 'assessment' and parent_origin != 'edit'
+                or origin == 'review' and parent_origin not in ('generation', 'assessment')):
+            conflict('Draft derived origin is not allowed after its parent')
+        prior = entry.counts
+        counts = LineageCounts(prior.edits + (origin == 'edit'),
+                               prior.assessments + (origin == 'assessment'),
+                               prior.reviews + (origin == 'review'), prior.total + 1)
+        if (counts.edits > 64 or counts.edits + counts.assessments > 128
+                or counts.reviews > 65 or counts.total > 193):
+            conflict('Draft lineage limit reached')
+        return counts
+
+    def _lineage_counts(self, db, owner, application_id, draft_id, append_origin=None, *, context=None):
+        context = context if context is not None else self._association_context(db, owner, application_id)
+        self._association(db, owner, application_id, draft_id, context=context)
+        entry = context.validated_by_draft[draft_id]
+        return entry.counts if append_origin is None else self._project_lineage(entry, append_origin)
+
+    def _association(self, db, owner, application_id, draft_id, *, visited=(), context=None):
+        context = context if context is not None else self._association_context(db, owner, application_id)
+        self._check_association_context(db, owner, application_id, context)
+        # Check the path before memo lookup, including on an already-validated node.
+        if draft_id in visited or len(visited) > 193:
             conflict('Draft lineage is cyclic or exceeds bounds')
+        if draft_id in context.validated_by_draft:
+            return context.validated_by_draft[draft_id].association
         self.domain._get(db, owner, application_id, 'application', c.ApplicationRecord)
         draft = self.domain._get(db, owner, draft_id, 'draft', c.DraftRevision)
         if (draft.id, draft.profile_id, draft.application_id) != (draft_id, owner, application_id):
             raise EvidenceError('NOT_FOUND', 'Draft not found', 404)
-        rows = [(identifier, data) for identifier, data in db.execute(
-            "SELECT id,data FROM records WHERE owner=? AND kind='workspace:draft_dependency'", (owner,))
-            if isinstance(json.loads(data), dict) and json.loads(data).get('draft_id') == draft_id]
+        rows = self._association_publication_rows(db, owner, application_id, draft_id, context=context)
         if len(rows) != 1:
             conflict('Draft publication association unavailable')
         raw = json.loads(rows[0][1])
         if not isinstance(raw, dict):
             conflict('Draft publication schema mismatch')
         if 'origin' not in raw:
-            return self._generation_association(db, owner, application_id, draft_id)
-        if raw['origin'] not in ('edit', 'assessment') or len(visited) >= 128:
+            association = self._generation_association(db, owner, application_id, draft_id, context=context)
+            self._check_association_context(db, owner, application_id, context)
+            context.validated_by_draft[draft_id] = _AssociationEntry(association, LineageCounts(0, 0, 0, 0))
+            return association
+        if raw['origin'] not in ('edit', 'assessment', 'review') or len(visited) >= 193:
             conflict('Draft publication origin or lineage exceeds bounds')
         if raw['origin'] == 'edit':
             from .edit_contracts import EditPublication
             from .edits import DraftEdits
             publication = EditPublication.model_validate_json(rows[0][1])
             handler = DraftEdits(self)
-        else:
+        elif raw['origin'] == 'assessment':
             from .assessment_contracts import AssessmentPublication
             from .assessments import DraftAssessments
             publication = AssessmentPublication.model_validate_json(rows[0][1])
             handler = DraftAssessments(self)
+        else:
+            from .review_contracts import ReviewPublication
+            from .reviews import DraftReviews
+            publication = ReviewPublication.model_validate_json(rows[0][1])
+            handler = DraftReviews(self)
         if publication.id != rows[0][0]:
             conflict('Draft publication identity mismatch')
-        return handler.association(db, owner, application_id, draft_id,
-                                   publication, visited + (draft_id,))
+        association = handler.association(db, owner, application_id, draft_id,
+                                          publication, visited + (draft_id,), context=context)
+        self._check_association_context(db, owner, application_id, context)
+        parent = context.validated_by_draft.get(publication.parent_draft_id)
+        if parent is None:
+            conflict('Draft parent was not validated in this invocation')
+        counts = self._project_lineage(parent, raw['origin'])
+        if publication.edit_depth != counts.edits:
+            conflict('Draft stored edit depth differs from its actual lineage')
+        context.validated_by_draft[draft_id] = _AssociationEntry(association, counts)
+        return association
 
-    def _generation_association(self, db, owner, application_id, draft_id):
+    def _generation_association(self, db, owner, application_id, draft_id, *, context=None):
+        context = context if context is not None else self._association_context(db, owner, application_id)
+        self._check_association_context(db, owner, application_id, context)
         self.domain._get(db, owner, application_id, 'application', c.ApplicationRecord)
         draft = self.domain._get(db, owner, draft_id, 'draft', c.DraftRevision)
         if (draft.id, draft.profile_id, draft.application_id) != (draft_id, owner, application_id):
             raise EvidenceError('NOT_FOUND', 'Draft not found', 404)
-        rows = [(identifier, data) for identifier, data in db.execute(
-            "SELECT id,data FROM records WHERE owner=? AND kind='workspace:draft_dependency'", (owner,))
-            if isinstance(json.loads(data), dict) and json.loads(data).get('draft_id') == draft_id]
+        rows = self._association_publication_rows(db, owner, application_id, draft_id, context=context)
         if len(rows) != 1:
             conflict('Draft publication association unavailable')
         publication = DraftPublication.model_validate_json(rows[0][1])
@@ -346,16 +458,16 @@ class DraftingService:
                     or stored[1] != c.text_hash(stored[0])
                     or json.loads(stored[0]) != dict(stage=stage, output_sha256=c.canonical_hash(json.loads(attempt[1])))):
                 conflict('Draft completed stage integrity mismatch')
-        context = parameters.context
+        frozen_context = parameters.context
         historical_application = self.domain._get(db, owner, application_id, 'application', c.ApplicationRecord).model_copy(update={
-            'company': context.company, 'role': context.role, 'sector': context.sector,
+            'company': frozen_context.company, 'role': frozen_context.role, 'sector': frozen_context.sector,
             'questions': batch.canonical_questions, 'input_revision': batch.revisions.application_input})
-        if (build_context(historical_application, batch) != context
-                or context.batch_id != batch.id or context.batch_sha256 != batch.batch_sha256
-                or context.profile_id != owner or context.application_id != application_id
+        if (build_context(historical_application, batch) != frozen_context
+                or frozen_context.batch_id != batch.id or frozen_context.batch_sha256 != batch.batch_sha256
+                or frozen_context.profile_id != owner or frozen_context.application_id != application_id
                 or c.canonical_hash(parameters.disclosure) != parameters.request.disclosure_sha256
-                or parameters.disclosure.get('selected_context') != context_payload(context)
-                or parameters.disclosure.get('selected_context_sha256') != c.canonical_hash(context_payload(context))):
+                or parameters.disclosure.get('selected_context') != context_payload(frozen_context)
+                or parameters.disclosure.get('selected_context_sha256') != c.canonical_hash(context_payload(frozen_context))):
             conflict('Draft frozen context/disclosure integrity mismatch')
 
         def replay(stage, *, instructions, input_value, output_model):
@@ -375,7 +487,7 @@ class DraftingService:
                 conflict('Draft stage payload association mismatch')
             return output_model.model_validate_json(stored[1])
 
-        replayed = run_pipeline(context, replay)
+        replayed = run_pipeline(frozen_context, replay)
         if (replayed.stage_names != publication.stage_names
                 or replayed.quality.ledger != draft.ledger
                 or replayed.quality.inventory_complete != draft.inventory_complete
@@ -384,9 +496,9 @@ class DraftingService:
                 or draft.assessment_state != 'assessed'
                 or tuple((item.target, item.text) for item in replayed.draft.targets)
                 != tuple((t.question.id, draft.cover_letter if t.question.id == 'cover_letter' else
-                          next((a.text for a in draft.answers if a.question_id == t.question.id), None)) for t in context.targets)
+                          next((a.text for a in draft.answers if a.question_id == t.question.id), None)) for t in frozen_context.targets)
                 or tuple((a.question_id, a.packet_id) for a in draft.answers)
-                != tuple((t.question.id, t.packet_id) for t in context.targets if t.question.id != 'cover_letter')):
+                != tuple((t.question.id, t.packet_id) for t in frozen_context.targets if t.question.id != 'cover_letter')):
             conflict('Draft final text/assessment association mismatch')
         return draft, publication, parameters, batch
 
@@ -397,12 +509,24 @@ class DraftingService:
             conflict('Draft stored schema or integrity mismatch')
 
     def _inspect(self, owner, application_id, draft_id):
+        from .admission_guard import AdmissionGuardError
+        from .admission_runtime import DraftAdmission
+        from .review_contracts import ReviewPublication
+        from .reviews import DraftReviews
+        reviews = DraftReviews(self)
         with self.store._read() as db:
-            draft, publication, parameters, batch = self._association(db, owner, application_id, draft_id)
+            context = self._association_context(db, owner, application_id)
+            association = self._association(db, owner, application_id, draft_id, context=context)
+            draft, publication, parameters, batch = association
+            counts = self._lineage_counts(db, owner, application_id, draft_id, context=context)
+            snapshot = (reviews.snapshot(db, owner, application_id, draft_id, publication)
+                        if type(publication) is ReviewPublication else None)
             reasons = list(self.packets._stale_reasons(db, batch))
             if self.jobs.capture(db, owner, application_id) != draft.revisions:
                 reasons.append('revision_changed')
             capture = None if reasons else self._capture(db, owner, application_id, parameters.request, expected=False)
+        ready = not reasons and reviews.writing_ready(association)
+        review_eligible = False
         if capture is not None:
             self._verify(capture)
             with self.store._read() as db:
@@ -410,6 +534,17 @@ class DraftingService:
                     conflict('Draft publication changed during inspection')
                 if self._capture(db, owner, application_id, parameters.request, expected=False) != capture:
                     conflict('Draft source capture changed during inspection')
+                if (ready and getattr(publication, 'origin', 'generation') in ('generation', 'assessment')
+                        and counts.reviews < 65 and counts.total < 193):
+                    try:
+                        history = DraftAdmission(self).capture_history(db, owner, application_id)
+                    except AdmissionGuardError as exc:
+                        if exc.kind != 'metadata':
+                            raise
+                        # Missing/corrupt admission metadata denies a NEW review,
+                        # not inspection of an otherwise valid retained graph.
+                    else:
+                        review_eligible = not any(reason != 'admission_exhausted' for reason in history.reason_codes)
         return dict(schema_version=1, draft=draft.model_dump(mode='json'), publication=publication.model_dump(mode='json'),
             publication_sha256=publication.publication_sha256,
             text_sha256=draft.text_sha256, ledger_sha256=draft.ledger_sha256, current=not reasons,
@@ -418,8 +553,11 @@ class DraftingService:
             writing_targets=[dict(question=t.question.model_dump(mode='json'), packet_id=t.packet_id)
                              for t in parameters.context.targets],
             manual_requirements=[m.model_dump(mode='json') for m in batch.manual_requirements],
-            semantic_assessment='fallible_not_release_qualified', review_eligible=False, browser_eligible=False,
-            capabilities=dict(generation=True, edit=True, reassess=True, review=False))
+            semantic_assessment='fallible_not_release_qualified', writing_review_ready=ready,
+            reviewed_current=snapshot is not None and not reasons,
+            review_snapshot=snapshot.model_dump(mode='json') if snapshot is not None else None,
+            review_eligible=review_eligible, browser_eligible=False,
+            capabilities=dict(generation=True, edit=True, reassess=True, review=True))
 
     def list(self, owner, application_id):
         with self.store._read() as db:

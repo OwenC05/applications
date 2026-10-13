@@ -603,6 +603,67 @@ an assessment without resetting edit depth. There are at most 64 edit links and
 Accepted mixed history is integrity-checked before stale inspection/export. No
 human-review badge, submission grant or semantic-quality qualification is created.
 
+### Exact local writing review (no browser authorization)
+
+`POST .../drafts/{draft_id}/review/preview` takes `expected_revisions` with all
+seven explicit dimensions and the exact `parent_text_sha256`,
+`parent_ledger_sha256`, `parent_publication_sha256`. It returns 200
+`{schema_version:1,disclosure,disclosure_sha256}`. The disclosure binds the exact
+cover letter, ordered answers and support ledger, source packet/research identity,
+canonical questions/cover-letter target, excluded manual requirements, style
+notes, pre/post vectors and ordered writing-only/fallibility warnings. It does
+not confirm facts, approve attachments/manual fields or authorize browser actions.
+
+`POST .../drafts/{draft_id}/review` adds an operation-local `idempotency_key`, the
+exact `disclosure_sha256` and literal `acknowledged:true`, returning 201 draft
+inspection. This is a synchronous local operation, **not a paid job**: it needs no
+provider key, new cloud consent or model initialization. There is no admission
+revision wrapper. Fresh review still checks existing operation history; active,
+unknown-outcome or integrity-blocked history denies it. Admission exhaustion
+alone does not block this unpaid operation. Admission metadata failure denies a
+new review but need not prevent otherwise valid retained inspection/export.
+
+Only a current assessed generation or assessment with complete support, valid
+citations/inventory, required writing and limits can immediately precede review.
+An edit or review cannot. Required canonical manual questions still block, even
+if a confirmed typed value has the same field name; optional manual requirements
+remain visible and excluded. Current originals are verified outside the writer,
+then canonical inputs/history are recaptured inside the atomic publication.
+
+The immutable child preserves every text character, answer order/packet ID,
+ledger, assessment/inventory and research identity. Only its ID, creation time
+and output revision change. Child, review publication, exact child-bound snapshot
+and application output publish atomically. Jobs, keys, attempts, reservation
+accounting and paid-admission counters are unchanged. Snapshots bind all seven
+post-publication counters and must have unambiguous ownership/child cardinality.
+
+Exact retained replay follows strict public scope/input validation but precedes
+fresh currentness/history checks. It validates the retained graph and returns the
+same child without another output increment or renewed current approval. Retain
+the exact request after response loss; a 500 after commit is not rollback proof.
+Changed keys/bodies or damaged retained associations cannot silently substitute
+a different review. Managed forgetting removes review-derived plaintext and
+snapshots even when a parent is orphaned, while preserving unresolved paid
+accounting; exports/backups remain outside that guarantee.
+
+Inspection adds `writing_review_ready` (writing/support readiness, not permission),
+`review_eligible` (a new review may be attempted), `reviewed_current` (this immediate
+review child and its exact vector are current) and `review_snapshot` (immediate
+review only, otherwise null). History blockers do not retroactively revoke an
+intact same-vector review. Staleness clears current approval, not retained history.
+Editing a review child is permitted but creates an unassessed child with no
+inherited snapshot. `browser_eligible` remains false. The workspace consumes review
+inspections for selection/edit/export, never as a completed paid result, and has
+no review action controls, automatic badge or automatic adoption.
+
+Per generation the graph permits at most 64 edits, 128 combined edit/assessment
+links, 65 reviews and 193 total derived links. Association/count validation is
+invocation-local to one unchanged SQLite snapshot, not a persistent cache or
+permission token. The synthetic 193-link maximum passed with default recursion,
+uncached inspection/export/replay and concurrent API checks. Assessment used the
+real Worker's default 30-second lease/10-second heartbeat. This is bounded
+correctness evidence, not a latency SLA, semantic-quality or release qualification.
+
 ### Explicit workspace paid controls (bounded preview)
 
 The isolated Python workspace now connects selected-data previews to explicit

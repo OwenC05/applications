@@ -375,3 +375,79 @@ tokens after API restart without reloading the page or losing retained operation
 It reads only the existing status endpoint, validates its closed DTO, and updates
 the connection credential—not scope, previews, buffers, consent or recovery.
 Reconciliation remains a separately chosen action; no automatic resend is added.
+
+## S5 exact writing-review increment — verified backend component
+
+The local review preview and acknowledged review API create an immutable,
+same-text/same-ledger child with an immediate child-bound snapshot. The operation
+advances only application output and creates no paid job, attempt, consent,
+factual confirmation, manual-field resolution or browser authorization. Fresh
+review checks current originals and retained operation history; exact retained
+replay preserves its original child without renewing approval. Required manual
+questions block even with same-name typed values. Later edits clear assessment
+and do not inherit a review snapshot.
+
+Strict request/disclosure/publication models, review/snapshot tamper checks,
+atomicity, replay/response loss, deletion/orphan handling and API integration have
+targeted synthetic tests. Actual API DTOs are consumed by the real workspace JS
+across generation/review/edit/assessment; review children cannot satisfy paid-job
+result resolution. The UI supports inspection/edit/export only, with no new
+review controls, automatic adoption or approval badge. Whole Node currently
+passes 590 tests and syntax checks cover 42 modules; these are not browser or
+semantic-quality qualification.
+
+On 2026-10-13, independent verification confirmed **1,977 positive backend cases**
+against one frozen source inventory, including actual 64-edit, 128-edit/assessment
+and 193-total-link histories. The maximum case exercised 64 edits, 64 assessments
+and 65 reviews, followed by uncached inspection/export/replay, limit denials,
+depth/cycle faults and concurrent ASGI/health requests with default recursion.
+Assessment used the real Worker's default 30-second lease/10-second heartbeat;
+initial generation used the existing 60-second direct claim. No leases, system
+limits or recursion limits were increased. Maximum-case setup took about 54
+minutes: this proves the bounded scenario, **not an interactive latency SLA**.
+
+This is explicitly **stitched positive evidence, not a clean single full run**.
+The original host run remains recorded as NON_PASS: its anonymous loopback
+receiver could not bind privileged port 443, and three gzip parametrization IDs
+included import-time timestamps. All 92 fetch cases then passed in an isolated
+unprivileged user/network namespace. Exactly three IDs were mapped only after
+byte-for-byte equality outside their recorded gzip MTIME bytes was verified;
+all other case identities remained exact. The remaining cases ran in fresh
+bounded processes against unchanged source. The aggregate verified all 1,977
+positive cases with no accepted skips, failures or errors, retained original raw
+reports and checked owned-helper cleanup. No system or project packages changed.
+
+Independent source reviews covered the review implementation and invocation-local
+publication-discovery optimization. Its regression first observed five owner scans
+where one is required; cached parsing remains confined to one guarded unchanged
+SQLite snapshot, never a permission token. A separately published provider fix
+rechecks live lease and consent authority at the final effect boundary; this is
+admission currentness, not an atomic guarantee about later socket scheduling.
+
+The actual browser passed review selection/edit/export, dirty-editor preservation
+and stale-review export on unchanged UI sources. Separate layout checks covered
+three viewport widths; the full functional matrix was not repeated at every width.
+Bounded axe found zero violations, not accessibility certification. Actual review
+action controls require the next S6 component and separate browser qualification.
+
+Earlier diagnostic attempts remain failures/interrupted evidence, not passes: an
+unrenewed setup lease stopped one history at 92 links; another stopped at assessment
+54 (161 links) with `PROVIDER_UNKNOWN`, whose cause is unproven because its volatile
+fixture was gone. A monolithic run also exhausted host thread capacity. Subsequent
+tests used retained owned fixtures and fresh per-file processes. A post-terminal
+heartbeat race is accepted only with an intact same-worker/fence certificate and
+an unexpired lease at completion; cancellation, expiry and damaged terminal state
+still deny it. No paid calls, semantic-quality, completed S5, Docker/friend-install
+or production-release claim follows from this backend component.
+
+### Inactive inferred-rubric validation component
+
+Commit `a88c32b` adds a pure, unconnected structural validator. It checks supplied
+canonical scope, full-text hashes and exact supporting spans; preserves indexed
+omissions; and labels interpretations as inferred, semantically unassessed and
+authority unchecked. It does not authenticate originals, establish currentness or
+availability, create generation-bound criteria, call providers or affect drafting.
+Direct copied/constructed model-instance regressions exposed and repaired an output
+revalidation gap before publication. Independent source reviews and fresh main-tree
+verification passed 191 targeted tests (including existing quote regressions), plus
+590 Node tests. This component does not complete S3 or qualify application quality.

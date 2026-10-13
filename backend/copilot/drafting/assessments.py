@@ -28,8 +28,8 @@ class DraftAssessments:
         self.jobs = service.jobs
         self.domain = service.domain
 
-    def _parent(self, db, owner, app, parent_id, request, *, visited=()):
-        association = self.service._association(db, owner, app, parent_id, visited=visited)
+    def _parent(self, db, owner, app, parent_id, request, *, visited=(), context=None):
+        association = self.service._association(db, owner, app, parent_id, visited=visited, context=context)
         parent, publication, parameters, batch = association
         if (not isinstance(publication, EditPublication) or parent.assessment_state != 'unassessed'
                 or parent.ledger or parent.inventory_complete
@@ -43,31 +43,15 @@ class DraftAssessments:
         return association, output
 
     def _capture(self, db, owner, app, parent_id, request):
-        parent, output = self._parent(db, owner, app, parent_id, request)
+        context = self.service._association_context(db, owner, app)
+        parent, output = self._parent(db, owner, app, parent_id, request, context=context)
         if self.jobs.capture(db, owner, app) != parent[0].revisions:
             conflict('Assessment parent is no longer current')
         # Counting the creation link prevents publishing an unreadable history.
-        self._lineage(db, owner, app, parent_id)
+        counts = self.service._lineage_counts(db, owner, app, parent_id,
+                                             append_origin='assessment', context=context)
         source = self.service._capture(db, owner, app, parent[2].request, expected=False)
-        return parent, output, source
-
-    def _lineage(self, db, owner, app, draft_id):
-        seen = set()
-        while True:
-            if draft_id in seen:
-                conflict('Assessment lineage is cyclic')
-            seen.add(draft_id)
-            rows = [(data,) for (data,) in db.execute(
-                "SELECT data FROM records WHERE owner=? AND kind='workspace:draft_dependency'", (owner,))
-                if isinstance(json.loads(data), dict) and json.loads(data).get('draft_id') == draft_id]
-            if len(rows) != 1:
-                conflict('Assessment lineage association unavailable')
-            value = json.loads(rows[0][0])
-            if 'origin' not in value:
-                return
-            if len(seen) >= 128:
-                conflict('Assessment lineage limit reached')
-            draft_id = value['parent_draft_id']
+        return parent, output, source, counts
 
     def _disclosure(self, context, output, request, limits):
         value = dict(schema_version=1, selected_context=context_payload(context),
@@ -243,14 +227,15 @@ class DraftAssessments:
         self.jobs.commit_stage(job_id, worker, fence, 'assessment_published', self.service._summary(draft, publication), publish=publish, terminal=True)
         return draft
 
-    def association(self, db, owner, app, draft_id, publication, visited):
+    def association(self, db, owner, app, draft_id, publication, visited, *, context=None):
         publication = validated(publication, AssessmentPublication)
-        if (not visited or visited[-1] != draft_id or len(visited) > 128 or len(set(visited)) != len(visited)
+        if (not visited or visited[-1] != draft_id or len(visited) > 193 or len(set(visited)) != len(visited)
                 or (publication.profile_id, publication.application_id, publication.draft_id) != (owner, app, draft_id)):
             conflict('Assessment publication scope/lineage mismatch')
         job, raw, dependencies = self.jobs._job(db, publication.job_id, owner)
         parameters = AssessmentParameters.model_validate_json(encode(raw))
-        parent, output = self._parent(db, owner, app, publication.parent_draft_id, parameters.request, visited=visited)
+        parent, output = self._parent(db, owner, app, publication.parent_draft_id, parameters.request,
+                                      visited=visited, context=context)
         # _parameters repeats the immutable validation without currentness/source IO.
         checked, _ = self._parameters(db, job, raw, parent_capture=(parent, output))
         intent = self.domain._get(db, owner, publication.intent_id, 'draft_intent', AssessmentIntent)

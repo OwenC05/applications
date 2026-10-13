@@ -166,6 +166,7 @@ export class PaidLaunchRegistry {
 
 function correlateResult(value, operation, job) {
   const v = copy(value), targets = new DraftBuffer(v).targets(), d = v.draft, p = v.publication, c = operation.capture;
+  require(p.origin !== 'review'); // A local acknowledgement is never a paid job result.
   const pre = c.request.expected_revisions;
   const publicationFields = ['schema_version', 'profile_id', 'application_id', 'id', 'draft_id', 'intent_id', 'job_id', 'fence', 'batch_id', 'batch_sha256', 'text_sha256', 'ledger_sha256', 'request_sha256', 'disclosure_sha256', 'prompt_version', 'stage_names', 'reason_codes', 'style_notes'];
   if (operation.kind === 'assessment') publicationFields.push('origin', 'parent_draft_id', 'parent_text_sha256', 'parent_ledger_sha256', 'parent_publication_id', 'parent_publication_sha256', 'pre_revisions', 'edit_depth', 'created_at');

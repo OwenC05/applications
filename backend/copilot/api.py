@@ -20,6 +20,7 @@ from .domain.contracts import Contract, Revision, canonical_hash
 from .drafting.admission_contracts import AssessmentLaunch, DraftLaunch
 from .drafting.assessment_contracts import AssessmentPreviewRequest, AssessmentRequest
 from .drafting.edit_contracts import EditRequest
+from .drafting.review_contracts import ReviewPreviewRequest, ReviewRequest
 from .drafting.runtime_contracts import DraftPreviewRequest, DraftRequest
 from .drafting.service import DraftingService
 from .jobs import Jobs
@@ -407,6 +408,17 @@ def create_app(settings: Settings | None = None, service_factory=make_service):
         body = await workspace_input(request, EditRequest)
         edited = await run_in_threadpool(drafting.edit, profile_id, application_id, draft_id, body)
         return await run_in_threadpool(drafting.detail, profile_id, application_id, edited.id)
+
+    @app.post(draft_base + '/{draft_id}/review/preview')
+    async def workspace_review_preview(profile_id: str, application_id: str, draft_id: str, request: Request):
+        body = await workspace_input(request, ReviewPreviewRequest)
+        return await run_in_threadpool(drafting.review_preview, profile_id, application_id, draft_id, body)
+
+    @app.post(draft_base + '/{draft_id}/review', status_code=201)
+    async def workspace_draft_review(profile_id: str, application_id: str, draft_id: str, request: Request):
+        body = await workspace_input(request, ReviewRequest)
+        reviewed = await run_in_threadpool(drafting.review, profile_id, application_id, draft_id, body)
+        return await run_in_threadpool(drafting.detail, profile_id, application_id, reviewed.id)
 
     @app.get(draft_base + '/{draft_id}/export')
     def workspace_draft_export(profile_id: str, application_id: str, draft_id: str):

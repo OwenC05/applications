@@ -2,7 +2,7 @@
 
 A private, local-first internship application workspace for **technology and finance**. Includes the preserved dependency-free Node.js MVP and a separate Python/FastAPI evidence workbench.
 
-**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python also has reviewed profile/interview/proposal/application data APIs, an explicit legacy importer and an isolated workspace preview. Durable workers handle indexing and bounded static company/role research with original-source inspection through the API. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. Python now connects stored per-question packets to consent-gated, durable 3/5-call drafting through API routes, with exact-text evidence assessment and blocked-output inspection. The workspace adds saved packet/draft inspection, local immutable writing edits and saved-text export; explicit paid generation/saved-edit assessment controls are connected with retained-request recovery. Human review, semantic quality qualification and supervised browser filling/submission remain unfinished. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
+**Snapshot status:** Node onboarding/research/drafting and the Python evidence workbench are implemented. Python also has reviewed profile/interview/proposal/application data APIs, an explicit legacy importer and an isolated workspace preview. Durable workers handle indexing and bounded static company/role research with original-source inspection through the API. The workbench has Chroma dense + BM25 retrieval, reranking and Docker scaffolding; Docker runtime is not verified. Python now connects stored per-question packets to consent-gated, durable 3/5-call drafting through API routes, with exact-text evidence assessment and blocked-output inspection. The workspace adds saved packet/draft inspection, local immutable writing edits and saved-text export; explicit paid generation/saved-edit assessment controls are connected with retained-request recovery. Exact local writing review is available through the API; its UI controls, semantic quality qualification and supervised browser filling/submission remain unfinished. See [implementation checkpoints](docs/implementation-status.md) and [the reviewed plan](docs/plans/README.md).
 
 Generation and reassessment API enqueue require an explicit captured drafting
 admission revision as well as the unchanged request/disclosure. A durable consumed
@@ -279,6 +279,25 @@ revision. No rewrite is performed. To use this preview, explicitly grant both
 `drafting` and `assessment` purposes **before generation**. Adding consent later
 stales saved edits; this increment does not silently refresh or reauthorize them.
 Mixed histories allow at most 64 edits and 128 edit/assessment links per generation.
-Exact human review and browser handoff are not enabled;
-`review_eligible` and `browser_eligible` remain false.
+An explicit **local writing-review API** can acknowledge current, supported
+generation or assessment text. Its exact disclosure includes the text, ledger,
+questions, excluded manual requirements and fallibility warnings. Acknowledgement
+creates an immutable same-text child and child-bound snapshot, advancing output
+once without a paid call or new factual authority. Required manual questions
+still block review; typed values do not silently resolve them. A later edit clears
+the assessment and does not inherit approval. Histories additionally allow up to
+65 review links and 193 total derived links. A synthetic maximum-history run
+exercised all 193 links, uncached inspection/export/replay, limit denials and
+concurrent API checks; this is bounded correctness evidence, not a latency SLA.
+The workspace can inspect/export/edit review children but has **no review action
+controls or automatic adoption/badge**. `writing_review_ready`, `review_eligible`
+and `reviewed_current` are separate; none authorizes form filling or submission.
+`browser_eligible` remains false. Exact reviewed-request replay returns its original
+child without making that child current again.
 No real provider request or human-labelled semantic-quality gate has been run.
+
+The separate inferred-rubric validator is currently **inactive**: it validates
+supplied canonical citations and labels interpretations as inferred, semantically
+unassessed and authority unchecked. It does not authenticate acquisition, bind
+current generations or feed application drafting. The existing exact-quotation
+compiler remains a distinct, unchanged path.

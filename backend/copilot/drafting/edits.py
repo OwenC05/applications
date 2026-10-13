@@ -33,7 +33,8 @@ class DraftEdits:
         return draft
 
     def _capture(self, db, owner, application_id, parent_id, request):
-        association = self.service._association(db, owner, application_id, parent_id)
+        context = self.service._association_context(db, owner, application_id)
+        association = self.service._association(db, owner, application_id, parent_id, context=context)
         parent, publication, parameters, _ = association
         current = self.service.jobs.capture(db, owner, application_id)
         if request.expected_revisions != parent.revisions or current != parent.revisions:
@@ -41,12 +42,11 @@ class DraftEdits:
         if (request.parent_text_sha256, request.parent_ledger_sha256, request.parent_publication_sha256) != (
                 parent.text_sha256, parent.ledger_sha256, publication.publication_sha256):
             conflict('Local edit parent hashes changed')
-        depth = self.service._edit_depth(publication)
-        if depth >= 64:
-            conflict('Local edit lineage limit reached')
+        counts = self.service._lineage_counts(db, owner, application_id, parent_id,
+                                             append_origin='edit', context=context)
         validate_targets(parameters.context, request.draft.targets)
         capture = self.service._capture(db, owner, application_id, parameters.request, expected=False)
-        return association, capture, depth
+        return association, capture, counts
 
     def _draft(self, owner, application_id, draft_id, created_at, parent, context, request):
         texts = {item.target: item.text for item in request.draft.targets}
@@ -72,7 +72,7 @@ class DraftEdits:
             if replay is not None:
                 return replay
             captured = self._capture(db, owner, application_id, parent_id, request)
-        association, source_capture, depth = captured
+        association, source_capture, counts = captured
         parent, parent_publication, parameters, batch = association
         self.service._verify(source_capture)
         created_at = self.service.jobs._now()
@@ -82,7 +82,7 @@ class DraftEdits:
             parent_ledger_sha256=parent.ledger_sha256, parent_publication_id=parent_publication.id,
             parent_publication_sha256=parent_publication.publication_sha256,
             batch_id=batch.id, batch_sha256=batch.batch_sha256, pre_revisions=parent.revisions,
-            edit_depth=depth + 1, created_at=created_at, request=request, request_sha256=digest,
+            edit_depth=counts.edits, created_at=created_at, request=request, request_sha256=digest,
             text_sha256=draft.text_sha256, ledger_sha256=draft.ledger_sha256,
             reason_codes=edit_reason_codes(parameters.context, request.draft))
         with self.store._tx() as db:
@@ -97,14 +97,14 @@ class DraftEdits:
                 'output_revision': draft.revisions.application_output}))
         return draft
 
-    def association(self, db, owner, application_id, draft_id, publication, visited):
+    def association(self, db, owner, application_id, draft_id, publication, visited, *, context=None):
         publication = validated(publication, EditPublication)
         if (publication.profile_id, publication.application_id, publication.draft_id) != (owner, application_id, draft_id):
             conflict('Local edit publication scope mismatch')
-        if not visited or visited[-1] != draft_id or len(visited) != len(set(visited)) or len(visited) > 128:
+        if not visited or visited[-1] != draft_id or len(visited) != len(set(visited)) or len(visited) > 193:
             conflict('Local edit lineage is invalid')
         parent, parent_publication, parameters, batch = self.service._association(
-            db, owner, application_id, publication.parent_draft_id, visited=visited)
+            db, owner, application_id, publication.parent_draft_id, visited=visited, context=context)
         depth = self.service._edit_depth(parent_publication)
         request = publication.request
         if (publication.edit_depth != depth + 1

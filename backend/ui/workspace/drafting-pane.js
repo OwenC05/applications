@@ -46,7 +46,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
     try { observer?.(capture()); } catch { /* Inspection observers cannot interrupt local writing or privacy cleanup. */ }
   }
   const controls = new Map();
-  const pane = section('Saved evidence and application writing', text('Local saved inspection, immutable editing and saved-text export. Separately acknowledged generation and unchanged saved-edit assessment are below; no human review, autofill or submission is connected.', 'warning'));
+  const pane = section('Saved evidence and application writing', text('Local saved inspection, immutable editing and saved-text export. Separately acknowledged generation and unchanged saved-edit assessment are below; no review action, autofill or submission is connected.', 'warning'));
   const packetStatus = text('Refresh to inspect saved packets.'), draftStatus = text('Refresh to inspect saved drafts.'), editStatus = text(''), exportStatus = text('');
   for (const status of [packetStatus, draftStatus, editStatus, exportStatus]) { status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); }
   const packetSelect = node('select'), questionSelect = node('select'), draftSelect = node('select');
@@ -110,7 +110,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
   function assessmentNotice() {
     if (!inspection) return '';
     if (ownDirty || saving || uncertain || savedChild) return 'Unsaved or unresolved writing: the saved assessment does not apply to this editor.';
-    return `Saved assessment: ${inspection.draft.assessment_state}. Inventory complete: ${inspection.draft.inventory_complete}. Semantic assessment is fallible, not release qualified; not human reviewed.`;
+    return `Saved assessment: ${inspection.draft.assessment_state}. Inventory complete: ${inspection.draft.inventory_complete}. Automated support is fallible, not release qualified. Any writing acknowledgement applies only to its exact saved revision, not facts, manual answers, attachments or browser authorization.`;
   }
   function updateCounters() {
     for (const target of inspection?.writing_targets ?? []) {
@@ -120,7 +120,7 @@ export function draftingPane({api, exportText, owner, application, edits, notify
   }
   function renderSaved(data) {
     draftInfo.replaceChildren(text(`Revision ${data.draft.id} · server-current at last inspection: ${data.current === true}. Currentness is not semantic support.`),
-      text(`Saved assessment: ${data.draft.assessment_state} · inventory complete: ${data.draft.inventory_complete}. Not human reviewed.`),
+      text(`Saved assessment: ${data.draft.assessment_state} · inventory complete: ${data.draft.inventory_complete}. Exact saved writing only; automated support is fallible. No fact confirmation, manual-answer or attachment review, or browser authorization.`),
       text(`Reasons: ${(data.reason_codes ?? []).join(', ') || 'none recorded'}`), text(`Editorial notes: ${(data.publication?.style_notes ?? []).join('; ') || 'none recorded'}`));
     savedPreview.replaceChildren(node('h3', 'Saved text — separate from unsaved writing'));
     for (const answer of data.draft.answers ?? []) savedPreview.append(node('h4', answer.question_id), node('pre', answer.text));

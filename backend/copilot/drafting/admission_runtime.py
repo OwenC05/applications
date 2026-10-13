@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from pydantic import TypeAdapter
 
-from ..admission_state import BINDINGS, HEADS, MAX_REVISION
+from ..admission_state import BINDINGS, HEADS, MAX_REVISION, AdmissionHead
 from ..contracts import EvidenceError
 from ..domain import contracts as c
 from ..domain.repository import uid
@@ -61,6 +61,13 @@ class CompletedPublicationCertificate:
     association_sha256: str
     own_parameters_sha256: str
     terminal_sha256: str
+
+
+@dataclass(frozen=True)
+class HistoryCapture:
+    head: AdmissionHead
+    reason_codes: tuple[str, ...]
+    completed_publication_certificates: tuple[CompletedPublicationCertificate, ...]
 
 
 class DraftAdmission:
@@ -128,6 +135,9 @@ class DraftAdmission:
         invalid, unresolved = self._attempts(db, owner, app)
         active = False
         certificates = []
+        # This memo belongs only to this unchanged supplied snapshot. It shares
+        # graph validation, never job/fence/admission permission or a live cache.
+        context = self.service._association_context(db, owner, app)
         # A retained binding is metadata even when its non-head job was lost.
         # Starting only from jobs would silently omit that corruption. Keep the
         # reverse association audit scoped to this exact owner/application.
@@ -139,7 +149,7 @@ class DraftAdmission:
                     raise
                 invalid = True
         try:
-            self._publication_rows(db, owner)
+            self._snapshot_publications(db, owner, app, context)
         except (EvidenceError, ValueError, TypeError):
             invalid = True
         for row in db.execute('SELECT id,owner,state,data FROM jobs WHERE owner=? ORDER BY id', (owner,)).fetchall():
@@ -166,7 +176,7 @@ class DraftAdmission:
                 if job.state in ('queued', 'running'):
                     active = True
                 if job.state == 'completed':
-                    certificates.append(self._completed_publication_certificate(db, owner, app, job.id))
+                    certificates.append(self._completed_publication_certificate(db, owner, app, job.id, context=context))
             except AdmissionGuardError as exc:
                 if exc.kind != 'history':
                     raise
@@ -176,11 +186,27 @@ class DraftAdmission:
         reasons = [code for code, applies in (('integrity_blocked', invalid), ('provider_outcome_unresolved', unresolved), ('active_operation', active)) if applies]
         return reasons, tuple(certificates)
 
+    def capture_history(self, db, owner, application_id):
+        """Read-only certificate in the supplied transaction; never source IO."""
+        head = inspect_admission_head(db, owner, application_id)
+        reasons, certificates = self._history(db, owner, application_id)
+        if head.last_job_id:
+            try:
+                inspect_retained_paid_job(db, owner, head.last_job_id)
+            except AdmissionGuardError as exc:
+                if exc.kind != 'history':
+                    raise
+                if 'integrity_blocked' not in reasons:
+                    reasons.insert(0, 'integrity_blocked')
+        if head.revision == MAX_REVISION:
+            reasons.append('admission_exhausted')
+        return HistoryCapture(head, tuple(reasons), certificates)
+
     def state(self, owner, application_id):
         self._ids(owner, application_id)
         with self.store._read() as db:
-            head = inspect_admission_head(db, owner, application_id)
-            reasons, _ = self._history(db, owner, application_id)
+            capture = self.capture_history(db, owner, application_id)
+            head, reasons = capture.head, list(capture.reason_codes)
             head_job = None
             if head.last_job_id:
                 try:
@@ -193,14 +219,13 @@ class DraftAdmission:
                         raise
                     if 'integrity_blocked' not in reasons:
                         reasons.insert(0, 'integrity_blocked')
-            if head.revision == MAX_REVISION:
-                reasons.append('admission_exhausted')
             return dict(schema_version=1, profile_id=owner, application_id=application_id,
                 admission_revision=head.revision, eligible=not reasons, reason_codes=reasons, head_job=head_job)
 
     def _publication_rows(self, db, owner):
+        from .review_contracts import ReviewPublication
         owned, foreign = [], []
-        models = {'edit': EditPublication, 'assessment': AssessmentPublication}
+        models = {'edit': EditPublication, 'assessment': AssessmentPublication, 'review': ReviewPublication}
         for identifier, sql_owner, data in db.execute("SELECT id,owner,data FROM records WHERE kind='workspace:draft_dependency' ORDER BY id"):
             try:
                 value = json.loads(data)
@@ -223,14 +248,26 @@ class DraftAdmission:
             owned.append(publication)
         return owned, foreign
 
-    def _completed_publication_certificate(self, db, owner, app, job_id):
+    def _snapshot_publications(self, db, owner, app, context):
+        if context is None:
+            return self._publication_rows(db, owner)
+        self.service._check_association_context(db, owner, app, context)
+        if context.publication_rows is None:
+            owned, foreign = self._publication_rows(db, owner)
+            self.service._check_association_context(db, owner, app, context)
+            context.publication_rows = (tuple(owned), tuple(foreign))
+        return context.publication_rows
+
+    def _completed_publication_certificate(self, db, owner, app, job_id, *, context=None):
+        if context is not None:
+            self.service._check_association_context(db, owner, app, context)
         if self._attempts(db, owner, app)[0]:
             conflict('Retained provider attempt identity mismatch')
         retained = inspect_retained_paid_job(db, owner, job_id)
         job = c.DurableJob.model_validate_json(retained.job_json)
         if job.state != 'completed' or retained.forgotten:
             conflict('Completed drafting publication unavailable')
-        owned, foreign = self._publication_rows(db, owner)
+        owned, foreign = self._snapshot_publications(db, owner, app, context)
         matches = [p for p in owned if getattr(p, 'job_id', None) == job_id]
         if len(matches) != 1:
             conflict('Completed publication cardinality mismatch')
@@ -245,7 +282,7 @@ class DraftAdmission:
         draft = c.DraftRevision.model_validate_json(draft_row[3])
         if (draft.id, draft.profile_id, draft.application_id) != (publication.draft_id, owner, app):
             conflict('Completed draft association mismatch')
-        association = self.service._association(db, owner, app, draft.id)
+        association = self.service._association(db, owner, app, draft.id, context=context)
         if association[:2] != (draft, publication):
             conflict('Completed publication graph mismatch')
         raw = db.execute('SELECT parameters FROM jobs WHERE id=?', (job_id,)).fetchone()[0]

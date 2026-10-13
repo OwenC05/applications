@@ -26,7 +26,7 @@ const deferred = () => { let resolve, reject; const promise = new Promise((yes, 
 const revisions = {schema_version: 1, documents: 1, facts: 1, metadata: 1, consent: 1, application_input: 1, application_output: 1, research: 1};
 function inspection(id = 'parent', value = 'Saved 🚀\r\ntext') {
   return {schema_version: 1, draft: {schema_version: 1, id, profile_id: 'owner', application_id: 'app', research_run_id: 'research', revisions: {...revisions}, answers: [{schema_version: 1, question_id: 'q', text: value, packet_id: 'packet'}], cover_letter: '', ledger: [], assessment_state: 'unassessed', inventory_complete: false},
-    publication: {schema_version: 1, id: 'pub', origin: 'generation', profile_id: 'owner', application_id: 'app', draft_id: id, text_sha256: 'a'.repeat(64), ledger_sha256: 'b'.repeat(64), style_notes: []}, text_sha256: 'a'.repeat(64), ledger_sha256: 'b'.repeat(64), publication_sha256: 'c'.repeat(64), current: true,
+    publication: {schema_version: 1, id: 'pub', profile_id: 'owner', application_id: 'app', draft_id: id, text_sha256: 'a'.repeat(64), ledger_sha256: 'b'.repeat(64), style_notes: []}, text_sha256: 'a'.repeat(64), ledger_sha256: 'b'.repeat(64), publication_sha256: 'c'.repeat(64), current: true,
     writing_targets: [{question: {schema_version: 1, id: 'q', type: 'writing', text: '<script>Question</script>', required: true, max_chars: 200, max_words: null, options: [], constraint_origin: 'user'}, packet_id: 'packet'}], reason_codes: [], manual_requirements: []};
 }
 function accepted(parent, body, id = 'child') {

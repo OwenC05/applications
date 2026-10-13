@@ -252,36 +252,55 @@ def test_corrupt_assessment_history_fails_before_stale_io_bypass(assessment, mon
 
 @pytest.mark.parametrize('mode', ['legacy_edits_then_assess', 'alternating'])
 def test_mixed_lineage_bounds_remain_readable_and_reject_before_reserve(assessment, monkeypatch, mode):
+    from copilot.drafting.admission_runtime import DraftAdmission
+    from copilot.worker import Worker
+
     local, parent = assessment
     service, scope, _, sent, _ = local
     service.provider.configure_limits(scope.profile_id, Limits(100_000_000, 1000, 2_000_000, 5))
-    original_association = service._association
-    verified = {}
+    worker = Worker(service.store, lambda: pytest.fail('Assessment initialized retrieval models'),
+                    drafting_factory=lambda _s, _j: service)
+    assert (worker.lease_seconds, worker.interval) == (30, 10)
 
-    def setup_association(db, owner, app, draft_id, *, visited=()):
-        # Fixture construction ONLY: append-only, untampered immutable histories.
-        # Validate each new link once; reuse its already-validated parents. This
-        # is not evidence for race/cycle/bound safety. The maximal-depth worker
-        # and fresh history inspection below run with no memoization whatsoever.
-        assert (owner, app) == (scope.profile_id, scope.application_id)
-        key = (owner, app, draft_id)
-        if key not in verified:
-            verified[key] = original_association(db, owner, app, draft_id, visited=visited)
-        return verified[key]
+    def worker_assessed(parent, key):
+        request = request_for(service, scope, parent, key)
+        job = service.enqueue_assessment(scope.profile_id, scope.application_id, parent.id,
+            capture_assessment_launch(service, scope, request))
+        assert worker.run_once(job.id, recovery=False) == dict(job_id=job.id, state='completed')
+        finished_at = worker.jobs._now()
+        assert worker.last_outcome['heartbeat'] in ({'state': 'stopped'},
+            {'state': 'authority_lost', 'code': 'AUTHORITY_LOST'})
+        assert worker.last_outcome['recovery'] == {'state': 'not_requested'}
+        with service.store._read() as db:
+            terminal = service.jobs._job(db, job.id, scope.profile_id)[0]
+            assert (terminal.id, terminal.profile_id, terminal.application_id, terminal.kind,
+                    terminal.state, terminal.stage, terminal.lease_owner, terminal.fence,
+                    terminal.attempt_count, terminal.cancellation_requested) == (
+                job.id, scope.profile_id, scope.application_id, 'assess', 'completed',
+                'assessment_published', worker.worker_id, job.fence + 1, 1, False)
+            assert terminal.lease_expires_at is not None and terminal.lease_expires_at > finished_at
+            certificate = DraftAdmission(service)._completed_publication_certificate(
+                db, scope.profile_id, scope.application_id, job.id)
+            assert (certificate.owner, certificate.application_id, certificate.job_id,
+                    certificate.kind, certificate.fence) == (
+                scope.profile_id, scope.application_id, job.id, 'assess', terminal.fence)
+            child = service.domain._get(db, scope.profile_id, certificate.draft_id, 'draft', c.DraftRevision)
+            assert child.revisions == terminal.revisions.model_copy(update={
+                'application_output': terminal.revisions.application_output + 1})
+            return child
 
-    with monkeypatch.context() as setup:
-        setup.setattr(service, '_association', setup_association)
-        if mode == 'legacy_edits_then_assess':
-            for depth in range(2, 65):
-                parent = edit(service, scope, parent, key=f'legacy-edit-{depth}')
-        else:
-            for depth in range(1, 64):
-                parent, *_ = assessed((local, parent), key=f'alternating-assess-{depth}')
-                parent = edit(service, scope, parent, key=f'alternating-edit-{depth + 1}')
-    assert service._association == original_association
+    # Construct every link through the real public operations. No setup-only
+    # cross-transaction memo: the default Worker genuinely renews each lease.
+    if mode == 'legacy_edits_then_assess':
+        for depth in range(2, 65):
+            parent = edit(service, scope, parent, key=f'legacy-edit-{depth}')
+    else:
+        for depth in range(1, 64):
+            parent = worker_assessed(parent, key=f'alternating-assess-{depth}')
+            parent = edit(service, scope, parent, key=f'alternating-edit-{depth + 1}')
     # Last assessment admission, completion, publication and inspection are all
     # uncached, exercising the complete accepted 65-link or 128-link history.
-    parent, *_ = assessed((local, parent), key=f'{mode}-final-assess')
+    parent = worker_assessed(parent, key=f'{mode}-final-assess')
     expected_assessments = 1 if mode == 'legacy_edits_then_assess' else 64
     assert len(sent) == 3 + expected_assessments
     with service.store._read() as db:
