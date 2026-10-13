@@ -609,3 +609,383 @@ def test_html_parser_rejects_excessive_output_and_non_linux(monkeypatch):
     monkeypatch.setattr(extraction.sys, 'platform', 'win32')
     with pytest.raises(ExtractionError, match='requires Linux'):
         extract(b'<p>Role</p>', 'text/html', timeout=2)
+
+
+# Fixed Greenhouse acquisition is a separate, unused transport lane. Real
+# HTTPResponse headers preserve duplicates, unlike a dict-backed response stub.
+GH_API = 'https://boards-api.greenhouse.io/v1/boards/synthetic_board/jobs/12345'
+GH_HOSTS = ['boards-api.greenhouse.io']
+
+
+def gh_response(body=b'{}', *, status=200, headers=None, framing=True):
+    class Socket:
+        def makefile(self, mode):
+            return io.BytesIO(wire)
+    pairs = [('Content-Type', 'application/json')] if headers is None else list(headers)
+    if framing:
+        pairs.append(('Content-Length', str(len(body))))
+    wire = (f'HTTP/1.1 {status} Synthetic\r\n'.encode()
+            + b''.join(f'{key}: {value}\r\n'.encode() for key, value in pairs)
+            + b'\r\n' + body)
+    response = http.client.HTTPResponse(Socket())
+    response.begin()
+    return response
+
+
+def gh_acquire(budget=None, *, url=GH_API, hosts=None):
+    # Attribute lookup intentionally occurs at test execution, not collection.
+    return fetch.acquire_greenhouse_json(
+        url, GH_HOSTS if hosts is None else hosts, budget or fetch.FetchBudget())
+
+
+@pytest.mark.parametrize('encoding', ['identity', 'gzip', 'deflate'])
+def test_fixed_json_preserves_raw_and_decoded_representations(transport, encoding):
+    import zlib
+    decoded = '{"literal":"Café 🚀 <p>&amp; no experience</p>"}'.encode()
+    raw = gzip.compress(decoded) if encoding == 'gzip' else (
+        zlib.compress(decoded) if encoding == 'deflate' else decoded)
+    transport[1].append(gh_response(raw, headers=[
+        ('Content-Type', 'application/json'), ('Content-Encoding', encoding)]))
+    budget = fetch.FetchBudget(max_bytes=8 * 1024 * 1024)
+    result = gh_acquire(budget)
+    assert result.original_bytes == raw
+    assert result.decoded_json_bytes == decoded
+    assert result.original_sha256 == hashlib.sha256(raw).hexdigest()
+    assert result.decoded_json_sha256 == hashlib.sha256(decoded).hexdigest()
+    assert result.requested_url == result.final_url == GH_API
+    assert result.media_type == 'application/json'
+    assert result.content_encoding == encoding
+    assert budget.requests == 1 and budget.bytes_read == len(raw)
+    call = transport[0][0]
+    assert call['host'] == GH_HOSTS[0] and call['address'] == '93.184.216.34'
+    assert call['method'] == 'GET'
+    assert call['target'] == '/v1/boards/synthetic_board/jobs/12345'
+    assert call['headers'] == {
+        'Host': GH_HOSTS[0], 'User-Agent': 'ApplicationCopilot-StaticResearch/1',
+        'Accept': 'application/json', 'Accept-Encoding': 'gzip,deflate', 'Connection': 'close'}
+    assert call['closed']
+
+
+@pytest.mark.parametrize('suffix', ['?questions=true', '?', '#', '#x', '/', '/other'])
+def test_fixed_json_rejects_endpoint_variations_before_reservation(transport, suffix):
+    budget = fetch.FetchBudget()
+    with pytest.raises(fetch.FetchError):
+        gh_acquire(budget, url=GH_API + suffix)
+    assert budget.requests == budget.bytes_read == 0 and transport[0] == []
+
+
+@pytest.mark.parametrize('url', [
+    GH_API.replace('https:', 'http:'), GH_API.replace('boards-api.', 'evil.boards-api.'),
+    GH_API.replace('io/', 'io:443/'), GH_API.replace('io/', 'io:444/'),
+    GH_API.replace('https://', 'https://user@'), GH_API.replace('boards-api', 'BOARDS-API'),
+    GH_API.replace('12345', '012345'), GH_API.replace('12345', '%312345'),
+    GH_API.replace('12345', '0'), GH_API.replace('12345', str(2**63)),
+])
+def test_fixed_json_never_normalizes_forbidden_endpoint_spelling(transport, url):
+    budget = fetch.FetchBudget()
+    with pytest.raises(fetch.FetchError):
+        gh_acquire(budget, url=url)
+    assert budget.requests == 0 and transport[0] == []
+
+
+@pytest.mark.parametrize('hosts', [[], ['example.com'], GH_HOSTS * 21,
+    GH_HOSTS[0], (GH_HOSTS[0],), [123], ['x' * 254], ['é.example'], [None]])
+def test_fixed_json_raw_host_list_is_bounded_before_normalization(transport, monkeypatch, hosts):
+    normalized = []
+    original = fetch._host
+    monkeypatch.setattr(fetch, '_host', lambda host: (normalized.append(host), original(host))[1])
+    budget = fetch.FetchBudget()
+    with pytest.raises(fetch.FetchError):
+        gh_acquire(budget, hosts=hosts)
+    assert budget.requests == 0 and transport[0] == []
+    if hosts != ['example.com']:
+        assert normalized == []
+
+
+def test_fixed_json_rejects_host_generator_without_consuming_it(transport):
+    consumed = []
+    def hosts():
+        consumed.append(True)
+        yield GH_HOSTS[0]
+    with pytest.raises(fetch.FetchError):
+        gh_acquire(hosts=hosts())
+    assert consumed == [] and transport[0] == []
+
+
+@pytest.mark.parametrize('status', [301, 302, 303, 307, 308, 201, 204, 404, 410, 429, 500])
+def test_fixed_json_never_follows_redirects_retries_or_infers_closed(transport, status):
+    transport[1].append(gh_response(status=status, headers=[
+        ('Content-Type', 'application/json'), ('Location', GH_API)]))
+    budget = fetch.FetchBudget()
+    with pytest.raises(fetch.FetchError):
+        gh_acquire(budget)
+    assert budget.requests == 1 and budget.bytes_read == 0
+    assert len(transport[0]) == 1 and transport[0][0]['closed']
+
+
+@pytest.mark.parametrize('media', [
+    'application/json', ' Application/JSON ', 'application/json; charset=utf-8',
+    'application/json; CHARSET="UTF-8"', 'application/json ; charset = utf-8',
+])
+def test_fixed_json_accepts_only_documented_local_charset_subset(transport, media):
+    transport[1].append(gh_response(headers=[('Content-Type', media)]))
+    assert gh_acquire().media_type == 'application/json'
+
+
+@pytest.mark.parametrize('headers', [
+    [], [('Content-Type', 'text/html')], [('Content-Type', 'application/octet-stream')],
+    [('Content-Type', 'application/problem+json')],
+    [('Content-Type', 'application/json; charset=latin1')],
+    [('Content-Type', 'application/json; charset=utf-8; charset=utf-8')],
+    [('Content-Type', 'application/json; charset=utf-8; other=x')],
+    [('Content-Type', 'application/json;')],
+    [('Content-Type', 'application/json'), ('Content-Type', 'application/json')],
+    [('Content-Type', 'application/json'), ('Content-Type', 'text/html')],
+])
+def test_fixed_json_rejects_missing_duplicate_and_ambiguous_real_http_headers(transport, headers):
+    transport[1].append(gh_response(headers=headers))
+    budget = fetch.FetchBudget()
+    with pytest.raises(fetch.FetchError):
+        gh_acquire(budget)
+    assert budget.requests == 1 and budget.bytes_read == 0 and transport[0][0]['closed']
+
+
+@pytest.mark.parametrize('size', [0, 256 * 1024 + 1, fetch.MAX_BYTES, fetch.MAX_BYTES + 1])
+def test_fixed_json_rejects_empty_or_over_parser_bound_payload(transport, size):
+    transport[1].append(gh_response(b'x' * size))
+    with pytest.raises(fetch.FetchError):
+        gh_acquire()
+    assert transport[0][0]['closed']
+
+
+def test_fixed_json_accepts_exact_parser_byte_boundary_without_parsing(transport):
+    raw = b' ' * (256 * 1024)
+    transport[1].append(gh_response(raw))
+    assert gh_acquire().decoded_json_bytes == raw
+
+
+@pytest.mark.parametrize('headers,body,framing', [
+    ([('Content-Encoding', 'br')], b'{}', True),
+    ([('Content-Encoding', 'gzip')], b'bad', True),
+    ([('Content-Encoding', 'gzip')], gzip.compress(b'{}')[:-1], True),
+    ([('Content-Encoding', 'gzip')], gzip.compress(b'{}') * 2, True),
+    ([('Content-Encoding', 'gzip')], gzip.compress(b'x' * (fetch.MAX_BYTES + 1)), True),
+    ([('Content-Length', '10')], b'{}', False),
+    ([('Content-Length', 'wat')], b'{}', False),
+    ([('Content-Length', '2'), ('Transfer-Encoding', 'chunked')], b'0\r\n\r\n', False),
+    ([('Transfer-Encoding', 'chunked')], b'4\r\n{}', False),
+])
+def test_fixed_json_rejects_encoding_and_framing_without_success(transport, headers, body, framing):
+    transport[1].append(gh_response(body, headers=[('Content-Type', 'application/json')] + headers,
+                                    framing=framing))
+    with pytest.raises(fetch.FetchError):
+        gh_acquire()
+    assert transport[0][0]['closed']
+
+
+@pytest.mark.parametrize('addresses', [[], ['127.0.0.1'], ['93.184.216.34', '10.0.0.1'],
+    ['169.254.1.1'], ['::ffff:93.184.216.34'], ['2002:5db8:d822::1'], ['93.184.216.34'] * 65])
+def test_fixed_json_revalidates_resolver_output_before_connect(transport, monkeypatch, addresses):
+    monkeypatch.setattr(fetch, '_resolve', lambda *_: addresses)
+    budget = fetch.FetchBudget()
+    with pytest.raises(fetch.FetchError):
+        gh_acquire(budget)
+    assert budget.requests == 1 and transport[0] == []
+
+
+@pytest.mark.parametrize('delay', [15, 16])
+def test_fixed_json_preflight_expiry_has_no_budget_or_dns_effects(transport, monkeypatch, delay):
+    clock = [100.0]
+    monkeypatch.setattr(fetch.time, 'monotonic', lambda: clock[0])
+    original = fetch._host
+    def delayed_host(host):
+        clock[0] += delay
+        return original(host)
+    monkeypatch.setattr(fetch, '_host', delayed_host)
+    dns = []
+    monkeypatch.setattr(fetch, '_resolve', lambda *args: dns.append(args))
+    budget = fetch.FetchBudget(started=100)
+    with pytest.raises(fetch.FetchError):
+        gh_acquire(budget)
+    assert budget.requests == 0 and dns == [] and transport[0] == []
+
+
+def test_fixed_json_partial_preflight_preserves_original_deadline(transport, monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(fetch.time, 'monotonic', lambda: clock[0])
+    original = fetch._host
+    def delayed_host(host):
+        clock[0] += 1
+        return original(host)
+    monkeypatch.setattr(fetch, '_host', delayed_host)
+    dns = []
+    monkeypatch.setattr(fetch, '_resolve', lambda host, deadline: (
+        dns.append(deadline), ['93.184.216.34'])[1])
+    transport[1].append(gh_response())
+    gh_acquire(fetch.FetchBudget(started=100))
+    assert dns == [115] and transport[0][0]['deadline'] == 115
+
+
+def test_fixed_json_checks_deadline_after_hashing(transport, monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(fetch.time, 'monotonic', lambda: clock[0])
+    original = fetch.hashlib.sha256
+    def delayed_hash(value):
+        clock[0] = 115
+        return original(value)
+    monkeypatch.setattr(fetch.hashlib, 'sha256', delayed_hash)
+    transport[1].append(gh_response())
+    with pytest.raises(fetch.FetchError):
+        gh_acquire(fetch.FetchBudget(started=100))
+    assert transport[0][0]['closed']
+
+
+def test_fixed_json_connection_closes_even_when_response_cleanup_raises(transport):
+    response = gh_response()
+    original_close = response.close
+    def broken_close():
+        original_close()
+        raise OSError('synthetic cleanup failure')
+    response.close = broken_close
+    transport[1].append(response)
+    with pytest.raises((fetch.FetchError, OSError)):
+        gh_acquire()
+    assert transport[0][0]['closed']
+
+
+def test_fixed_json_two_acquisitions_share_budget_without_reset(transport):
+    budget = fetch.FetchBudget(max_requests=2, max_bytes=8 * 1024 * 1024)
+    for _ in range(2):
+        transport[1].append(gh_response())
+        gh_acquire(budget)
+    with pytest.raises(fetch.FetchError):
+        gh_acquire(budget)
+    assert budget.requests == 2 and budget.bytes_read == 4 and len(transport[0]) == 2
+
+
+@pytest.mark.parametrize('cap', [True, float('nan'), float('inf'), '115', None])
+def test_fixed_json_private_deadline_cap_rejects_nonfinite_or_inexact_types(transport, cap):
+    budget = fetch.FetchBudget()
+    with pytest.raises(fetch.FetchError):
+        fetch._acquire_greenhouse_json_until(GH_API, GH_HOSTS, budget, cap)
+    assert budget.requests == 0 and transport[0] == []
+
+
+@pytest.mark.parametrize('kind', ['request', 'run', 'body'])
+def test_fixed_json_exhausted_shared_budget_performs_no_dns_or_request(transport, monkeypatch, kind):
+    budget = fetch.FetchBudget()
+    if kind == 'request':
+        budget.requests = budget.max_requests
+    elif kind == 'body':
+        budget.bytes_read = budget.max_bytes
+    else:
+        budget.started -= 121
+    dns = []
+    monkeypatch.setattr(fetch, '_resolve', lambda *args: dns.append(args))
+    before = (budget.requests, budget.bytes_read)
+    with pytest.raises(fetch.FetchError):
+        gh_acquire(budget)
+    assert (budget.requests, budget.bytes_read) == before
+    assert dns == [] and transport[0] == []
+
+
+@pytest.mark.parametrize('stage', ['dns', 'read'])
+def test_fixed_json_expiry_during_io_denies_return_and_closes_acquired_resources(transport, monkeypatch, stage):
+    clock = [100.0]
+    monkeypatch.setattr(fetch.time, 'monotonic', lambda: clock[0])
+    response = gh_response()
+    if stage == 'dns':
+        def resolve(*args):
+            clock[0] = 115
+            return ['93.184.216.34']
+        monkeypatch.setattr(fetch, '_resolve', resolve)
+    else:
+        original = response.read
+        def read(size):
+            clock[0] = 115
+            return original(size)
+        response.read = read
+    transport[1].append(response)
+    with pytest.raises(fetch.FetchError):
+        gh_acquire(fetch.FetchBudget(started=100))
+    assert all(call['closed'] for call in transport[0])
+
+
+@pytest.mark.parametrize('stage', ['request', 'response'])
+def test_fixed_json_request_and_response_failures_close_connection(monkeypatch, stage):
+    closed = []
+    monkeypatch.setattr(fetch, '_resolve', lambda *_: ['93.184.216.34'])
+    class Connection:
+        def __init__(self, *args):
+            pass
+        def request(self, *args, **kwargs):
+            if stage == 'request':
+                raise OSError('synthetic request failure')
+        def getresponse(self):
+            raise http.client.HTTPException('synthetic response failure')
+        def close(self):
+            closed.append(True)
+    monkeypatch.setattr(fetch, '_PinnedHTTPS', Connection)
+    with pytest.raises(fetch.FetchError):
+        gh_acquire()
+    assert closed == [True]
+
+
+def test_fixed_json_partial_exception_keeps_body_reservation(transport):
+    response = gh_response(b'x' * 100)
+    def broken_read(size):
+        raise http.client.IncompleteRead(b'partial')
+    response.read = broken_read
+    transport[1].append(response)
+    budget = fetch.FetchBudget(max_bytes=1024)
+    with pytest.raises(fetch.FetchError):
+        gh_acquire(budget)
+    assert budget.requests == 1 and budget.bytes_read == 1024
+    assert transport[0][0]['closed']
+
+
+def _assert_fixed_json_denies_cleanup_expiry(transport, monkeypatch, expiry_stage):
+    clock = [100.0]
+    closed = []
+    monkeypatch.setattr(fetch.time, 'monotonic', lambda: clock[0])
+    response = gh_response()
+    original_response_close = response.close
+
+    def close_response():
+        original_response_close()
+        closed.append('response')
+        if expiry_stage == 'response':
+            clock[0] = 115.0
+
+    response.close = close_response
+    original_connection = fetch._PinnedHTTPS
+
+    class Connection(original_connection):
+        def close(self):
+            super().close()
+            closed.append('connection')
+            if expiry_stage == 'connection':
+                clock[0] = 115.0
+
+    monkeypatch.setattr(fetch, '_PinnedHTTPS', Connection)
+    transport[1].append(response)
+    budget = fetch.FetchBudget(started=100.0)
+    try:
+        with pytest.raises(fetch.FetchError, match='deadline'):
+            gh_acquire(budget)
+    finally:
+        # A late denial does not erase the completed request/body charge, and
+        # both independent resources must close before the return boundary.
+        assert closed == ['response', 'connection']
+        assert clock[0] == 115.0
+        assert budget.requests == 1 and budget.bytes_read == 2
+        assert transport[0][0]['deadline'] == 115.0
+        assert transport[0][0]['closed'] and response.closed
+
+
+def test_fixed_json_response_close_exact_deadline_expiry_denies_return(transport, monkeypatch):
+    _assert_fixed_json_denies_cleanup_expiry(transport, monkeypatch, 'response')
+
+
+def test_fixed_json_connection_close_exact_deadline_expiry_denies_return(transport, monkeypatch):
+    _assert_fixed_json_denies_cleanup_expiry(transport, monkeypatch, 'connection')
