@@ -287,9 +287,9 @@ def test_budget_exhaustion_and_run_expiry_never_connect(transport):
     (b'x', {'Content-Length': str(fetch.MAX_BYTES + 1)}),
     (b'x', {'Content-Length': 'nonsense'}),
     (b'x', {'Content-Length': '2'}),
-    (gzip.compress(b'x' * (fetch.MAX_BYTES + 1)), {'Content-Encoding': 'gzip'}),
-    (gzip.compress(b'x')[:-2], {'Content-Encoding': 'gzip'}),
-    (gzip.compress(b'x') + gzip.compress(b'y'), {'Content-Encoding': 'gzip'}),
+    (gzip.compress(b'x' * (fetch.MAX_BYTES + 1), mtime=0), {'Content-Encoding': 'gzip'}),
+    (gzip.compress(b'x', mtime=0)[:-2], {'Content-Encoding': 'gzip'}),
+    (gzip.compress(b'x', mtime=0) + gzip.compress(b'y', mtime=0), {'Content-Encoding': 'gzip'}),
     (b'bad', {'Content-Encoding': 'deflate'}),
     (b'bad', {'Content-Encoding': 'br'}),
 ])
@@ -301,7 +301,7 @@ def test_body_limits_compression_truncation_and_lengths(transport, body, headers
 
 
 def test_compressed_original_and_decoded_text_preserved(transport):
-    original = gzip.compress(b'Public facts')
+    original = gzip.compress(b'Public facts', mtime=0)
     transport[1].append(Response(original, headers={'Content-Encoding': 'gzip'}))
     result = fetch.acquire('https://example.com/', ['example.com'], fetch.FetchBudget())
     assert result.original_bytes == original and result.canonical_text == 'Public facts'
@@ -642,7 +642,7 @@ def gh_acquire(budget=None, *, url=GH_API, hosts=None):
 def test_fixed_json_preserves_raw_and_decoded_representations(transport, encoding):
     import zlib
     decoded = '{"literal":"Café 🚀 <p>&amp; no experience</p>"}'.encode()
-    raw = gzip.compress(decoded) if encoding == 'gzip' else (
+    raw = gzip.compress(decoded, mtime=0) if encoding == 'gzip' else (
         zlib.compress(decoded) if encoding == 'deflate' else decoded)
     transport[1].append(gh_response(raw, headers=[
         ('Content-Type', 'application/json'), ('Content-Encoding', encoding)]))
@@ -767,9 +767,9 @@ def test_fixed_json_accepts_exact_parser_byte_boundary_without_parsing(transport
 @pytest.mark.parametrize('headers,body,framing', [
     ([('Content-Encoding', 'br')], b'{}', True),
     ([('Content-Encoding', 'gzip')], b'bad', True),
-    ([('Content-Encoding', 'gzip')], gzip.compress(b'{}')[:-1], True),
-    ([('Content-Encoding', 'gzip')], gzip.compress(b'{}') * 2, True),
-    ([('Content-Encoding', 'gzip')], gzip.compress(b'x' * (fetch.MAX_BYTES + 1)), True),
+    ([('Content-Encoding', 'gzip')], gzip.compress(b'{}', mtime=0)[:-1], True),
+    ([('Content-Encoding', 'gzip')], gzip.compress(b'{}', mtime=0) * 2, True),
+    ([('Content-Encoding', 'gzip')], gzip.compress(b'x' * (fetch.MAX_BYTES + 1), mtime=0), True),
     ([('Content-Length', '10')], b'{}', False),
     ([('Content-Length', 'wat')], b'{}', False),
     ([('Content-Length', '2'), ('Transfer-Encoding', 'chunked')], b'0\r\n\r\n', False),
@@ -989,3 +989,23 @@ def test_fixed_json_response_close_exact_deadline_expiry_denies_return(transport
 
 def test_fixed_json_connection_close_exact_deadline_expiry_denies_return(transport, monkeypatch):
     _assert_fixed_json_denies_cleanup_expiry(transport, monkeypatch, 'connection')
+
+
+@pytest.mark.parametrize('test_function,body_index', [
+    (test_body_limits_compression_truncation_and_lengths, 0),
+    (test_fixed_json_rejects_encoding_and_framing_without_success, 1),
+])
+def test_import_time_gzip_fixtures_have_fixed_mtime(test_function, body_index):
+    """Fixture identities must not depend on when pytest imports this module."""
+    marker = next(mark for mark in test_function.pytestmark if mark.name == 'parametrize')
+    timestamps = []
+    for parameters in marker.args[1]:
+        body = parameters[body_index]
+        if not body.startswith(b'\x1f\x8b\x08'):
+            continue
+        # Include the second member of intentionally concatenated gzip fixtures.
+        offset = 0
+        while (offset := body.find(b'\x1f\x8b\x08', offset)) != -1:
+            timestamps.append(int.from_bytes(body[offset + 4:offset + 8], 'little'))
+            offset += 10
+    assert timestamps == [0, 0, 0, 0]
