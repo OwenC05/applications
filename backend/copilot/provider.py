@@ -255,6 +255,11 @@ class Provider:
             error('PROVIDER_UNCONFIGURED', 'Configure the provider explicitly before paid work', 503)
         return job, key
 
+    def _assert_effect_current(self, db, job_id, worker_id, fence):
+        job, _ = self.jobs.assert_current(db, job_id, worker_id, fence)
+        self._purpose_consent(db, job)
+        self.jobs._require_live_lease(job, worker_id, fence)
+
     def usage(self, owner):
         with self.store._tx() as db:
             self.store._profile(db, owner)
@@ -345,6 +350,7 @@ class Provider:
                 error('BUDGET_EXCEEDED', 'Retry-family reservation exceeds configured job limit', 403)
             # Only undispatched attempts move: the serialized transaction proves
             # no previous body admission, retaining uncertain attempts untouched.
+            self._assert_effect_current(db, job_id, worker_id, fence)
             db.execute('UPDATE provider_attempts SET dispatched=1,day=? WHERE id=?', (day, attempt_id))
             return key
 
@@ -405,7 +411,9 @@ class Provider:
                     guard.validate(db, certificate)
                 row = db.execute('SELECT response FROM provider_attempts WHERE id=?', (attempt.id,)).fetchone()
                 if row and row[0]:
-                    return output_model.model_validate_json(row[0])
+                    validated = output_model.model_validate_json(row[0])
+                    self._assert_effect_current(db, job_id, worker_id, fence)
+                    return validated
             error('INVALID_PROVIDER_OUTPUT', 'Completed provider attempt has no reusable validated output', 502)
         if attempt.state != 'prepared':
             error('PROVIDER_UNKNOWN', 'Resolve the previous provider attempt explicitly; no automatic retry', 409)
@@ -453,8 +461,11 @@ class Provider:
                 if current.state != 'prepared' or not row[1]:
                     error('PROVIDER_UNKNOWN', 'Provider attempt no longer owns completion authority')
                 completed = current.model_copy(update={'state': 'completed', 'reported_tokens': reported})
+                completed_json = completed.model_dump_json()
+                response_json = validated.model_dump_json()
+                self._assert_effect_current(db, job_id, worker_id, fence)
                 db.execute('UPDATE provider_attempts SET state=?,data=?,response=? WHERE id=?',
-                           ('completed', completed.model_dump_json(), validated.model_dump_json(), attempt.id))
+                           ('completed', completed_json, response_json, attempt.id))
         except Exception:
             self._unknown(attempt.id, job_id)
             error('PROVIDER_UNKNOWN', 'Provider response could not be committed under current authority', 502)

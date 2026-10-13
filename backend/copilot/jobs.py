@@ -353,11 +353,14 @@ class Jobs:
                 return leased
         return None
 
-    def assert_current(self, db, job_id, worker_id, fence):
-        job, parameters, dependencies = self._job(db, job_id)
+    def _require_live_lease(self, job, worker_id, fence):
         if (job.state != 'running' or job.lease_owner != worker_id or job.fence != fence
                 or job.cancellation_requested or job.lease_expires_at <= self._now()):
             error('CONFLICT', 'Job lease or operation authority is no longer current')
+
+    def assert_current(self, db, job_id, worker_id, fence):
+        job, parameters, dependencies = self._job(db, job_id)
+        self._require_live_lease(job, worker_id, fence)
         if job.kind in ('draft', 'assess'):
             require_dispatch_admission(db, job.profile_id, job.id)
         current = self.capture(db, job.profile_id, job.application_id)
@@ -369,6 +372,7 @@ class Jobs:
             self.store.require_current_research(db, scope, self._now())
         if job.kind == 'packets':
             self._packet_current(db, PacketParameters.model_validate_json(encode(parameters)), current)
+        self._require_live_lease(job, worker_id, fence)
         return job, parameters
 
     def heartbeat(self, job_id, worker_id, fence, lease_seconds=60):
