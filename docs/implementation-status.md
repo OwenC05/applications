@@ -556,3 +556,30 @@ closes the narrow SDK launch issue, not full S6/S7, semantic quality, a complete
 Docker retrieval/drafting workflow, restore, two-friend installation, browser
 filling/submission or private/friend release readiness. No actual private dotenv,
 credentials or applicant documents were read during qualification.
+
+### S7 R1 — inactive structural archive boundary
+
+A private structural scanner now checks a constrained, uncompressed USTAR
+archive: closed JSON declarations, exact member inventory and SHA-256 hashes,
+streaming size limits, strict framing/padding and no-follow selected-file identity.
+It never extracts members, opens SQLite or uses archive member paths as filesystem
+authority. Its immutable-looking result is deliberately caller-fabricable and
+**nonauthoritative**; an opaque SQLite-named payload can pass structural inspection
+without proving database validity, ownership, provenance or permission to restore.
+No public inspection/preparation API or production caller is activated.
+
+Fresh verification passed **187 focused cases**, including independent raw-header
+adversarial fixtures and an unmodified stdlib USTAR-writer positive control. Two
+fresh collections were identical, and a separate import probe denied writes,
+network/process/CWD changes and confirmed no SDK, SQLite or Store import. All four
+new source/test hashes and 165 unchanged published SDK-baseline hashes matched.
+Independent code and architecture review closed the TAR-alignment and safe-error
+findings with actual RED regressions. Ruff and syntax checks passed; this is not
+a full-suite, typecheck or peak-memory benchmark claim.
+
+This is an **inactive S7 component, not usable backup/restore**. Logical SQLite and
+original-source/provenance validation, offline capture, destination installation,
+startup/recovery/privacy integration and actual Docker restore remain subsequent
+work. No CLI, Store/jobs/schema, cloud/provider, lease, model or dependency behavior
+was changed. Full S7, 1,000-chunk performance, authorized quality evaluation and
+independent friend-installation gates remain unqualified.
