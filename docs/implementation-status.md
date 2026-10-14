@@ -622,3 +622,30 @@ CLI/startup wiring, Store/jobs/schema mutation, cloud/provider/model access or
 browser action was added. Complete logical validation, offline backup capture,
 destination installation and recovery/privacy integration remain subsequent S7
 work; full S7 and friend/release qualification are still incomplete.
+
+
+### S7 R2b increment 1 — inactive logical row shapes
+
+A pure helper now checks the exact 26-table/26-record-kind registry, strict JSON,
+persisted scalar types and local SQL/JSON identity mirrors. Serialized-row,
+aggregate JSON-work, per-row node and depth limits are explicit. Iterator-based
+traversal avoids an unbounded sibling frontier. This is **shape-only coverage**:
+`GRAPH_VALIDATION_COMPLETE` remains false, and no graph observer or production
+restore caller has been activated.
+
+Fresh qualification passed **79 row tests** in an isolated copy containing the
+published backend and only this increment's three new files. Two collections
+were identical; XML membership, import-only write/network/process tripwires,
+Ruff and syntax checks passed. Independent review findings were fixed after
+actual RED cases, including the unpublished test-helper dependency exposed by
+the clean publication check. These are not full-suite or typecheck results.
+
+An actual CHECK-invalid synthetic database demonstrates why native read-only
+SQLite integrity results are not sufficient: integrity can report `ok` while an
+admission revision is negative. The explicit row predicate rejects that value;
+production validation stays read-only rather than relaxing the SQLite boundary.
+
+Cross-row ownership, provenance, job/accounting/history lineage, original bytes,
+the complete logical child protocol and usable backup/restore remain unfinished.
+No schema, Store/jobs/provider behavior, consent, browser action or dependency
+was changed. This increment does not establish full S7 or release readiness.
