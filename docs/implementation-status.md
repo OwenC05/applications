@@ -583,3 +583,42 @@ startup/recovery/privacy integration and actual Docker restore remain subsequent
 work. No CLI, Store/jobs/schema, cloud/provider, lease, model or dependency behavior
 was changed. Full S7, 1,000-chunk performance, authorized quality evaluation and
 independent friend-installation gates remain unqualified.
+
+### S7 R2a — inactive staged physical-catalog observation
+
+A separate private observer revalidates the same selected archive descriptor and
+all member hashes, copies only the database into an owned 0700 stage, and inspects
+that copy in a disposable Linux Python child. Originals are not extracted and
+the source database is never opened by SQLite. Canonical rollback-format headers,
+0600 file identity/hash checks, a closed four-FD/4096-byte JSON protocol, and
+verified 512 MiB address-space/zero-core limits constrain the boundary. SQLite
+controls precede the first catalog query; the exact trusted 57-object/26-table
+catalog must match before fixed metadata queries. Five-second SQLite work and
+ten-second child deadlines are distinct from preceding archive I/O bounds.
+
+Fresh frozen-source qualification passed **335 focused cases**: 187 R1 and 148
+R2a tests, with two identical fresh collections and exact XML membership.
+Fourteen demonstrated behavioral RED cases passed after narrow repairs, including
+actual child deadline/FD faults and the installed progress-callback boundary.
+Independent code and architecture reviews closed the findings. Ruff and syntax
+checks passed; this is not a full-backend-suite or typecheck claim. Import-only
+qualification still confirms no SQLite, SDK, Store or process/write side effects.
+
+The trusted catalog and actual configuration readbacks were qualified on SQLite
+3.53.1 in WSL and 3.40.1 in Docker. **Nine actual Docker checks** used 62 allowlisted
+copied files against the pinned runtime, not a rebuilt current-product image.
+Unmodified-child acceptance and hostile schemas with forged supported manifest
+hashes were exercised; a separately instrumented child verified resource limits
+before SQLite import. Exact owned containers and recorded clients were absent
+afterward. Tool-only incomplete-context and Ruff-cache cleanup failures remain
+preserved; fresh corrected-tool qualification passed without hiding them through
+product changes. Fault-injected uncertain stages remain intentionally retained,
+not swept or presented as universally cleaned fixtures.
+
+The result remains caller-fabricable, **nonauthoritative catalog data**. It does not
+validate application rows, B-tree/foreign-key integrity, original-source graphs,
+model provenance or restore readiness. No public inspection/preparation API,
+CLI/startup wiring, Store/jobs/schema mutation, cloud/provider/model access or
+browser action was added. Complete logical validation, offline backup capture,
+destination installation and recovery/privacy integration remain subsequent S7
+work; full S7 and friend/release qualification are still incomplete.
